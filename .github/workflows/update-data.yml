@@ -20,8 +20,8 @@ jobs:
         env:
           EQUITY_CODE: '120716'
           DEBT_CODE: '119533'
-          GOLD_CODE: '119212'
-          LIQUID_CODE: '119069'
+          GOLD_CODE: '119788'
+          LIQUID_CODE: '119091'
       - run: |
           git config user.name "money-plan bot"
           git config user.email "bot@users.noreply.github.com"
