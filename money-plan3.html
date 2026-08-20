@@ -3,6 +3,21 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <title>Money Plan</title>
+
+<!-- Home-screen install. Android reads the manifest; iOS ignores it almost
+     entirely and reads the apple-* tags below instead, so both are present.
+     All four references are RELATIVE, which matters: this page lives in a
+     project subpath (yourname.github.io/repo/), and an absolute "/icon.png"
+     would resolve to the domain root where nothing exists. The icon would
+     silently fall back to a screenshot of the page. -->
+<link rel="manifest" href="./manifest.json">
+<link rel="apple-touch-icon" href="./icon-180.png">
+<link rel="icon" type="image/png" sizes="192x192" href="./icon-192.png">
+<meta name="theme-color" content="#0e1116">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Money Plan">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <style>
 :root{
   --bg:#0e1116; --card:#171b22; --card2:#1e2430; --line:#2a3140;
@@ -19,7 +34,11 @@ body{padding-bottom:96px}
 
 header{position:sticky;top:0;z-index:40;background:rgba(14,17,22,.94);
   backdrop-filter:blur(12px);border-bottom:1px solid var(--line)}
-header .wrap{padding-top:14px;padding-bottom:10px}
+/* Installed to the home screen with a translucent status bar, the page draws
+   under the notch. env() is 0px in an ordinary browser tab, so this costs
+   nothing there and stops the title sitting under the clock on a phone. */
+header .wrap{padding-top:calc(14px + env(safe-area-inset-top));padding-bottom:10px}
+body{padding-bottom:calc(96px + env(safe-area-inset-bottom))}
 h1{font-size:19px;margin:0 0 2px;letter-spacing:-.2px}
 .sub{font-size:12px;color:var(--tx3)}
 
