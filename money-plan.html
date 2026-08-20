@@ -375,8 +375,14 @@ a{color:var(--acc2)}
       </div>
       <div class="row">
         <div><label>Plan until age <button type="button" class="i" data-g="lifeexp" aria-label="What does this mean?">i</button></label><input id="rLife" type="number" inputmode="numeric" value="88"></div>
-        <div><label>Other income then, per year <button type="button" class="i" data-g="otherincome" aria-label="What does this mean?">i</button></label><input id="rOther" type="number" inputmode="numeric" value="0"></div>
+        <div><label>Other income, <b>every year</b> of retirement <button type="button" class="i" data-g="otherincome" aria-label="What does this mean?">i</button></label><input id="rOther" type="number" inputmode="numeric" value="0" placeholder="0 if none"></div>
       </div>
+      <div class="note"><b>A yearly income, not a pot of money.</b> Rent, a business, a spouse's pension —
+        something that keeps arriving each year after you stop working.
+        <br><br>Do <b>not</b> put your EPF, NPS, gratuity or leave encashment here. Those are lump sums, the
+        app already counts them from the You tab, and entering one here would tell the model you receive that
+        amount <i>every year for the rest of your life</i>. Do not put your existing investments here either —
+        those belong in <i>"already saved for this"</i> above.</div>
     </div>
 
     <div class="row">
@@ -2160,6 +2166,10 @@ G.nofitting={t:'Nothing here is fitted to data',b:`There are no regressions, no 
 
 G.autodata={t:'Why it cannot just fetch the data itself',b:`Not because the websites block you. Because a page opened from your downloads folder has no origin, and a browser will not let a page with no origin read a response from anywhere.`,
   eg:`That rule exists for a good reason: it is what stops a downloaded HTML file quietly reading your bank account while you have it open. No cooperation from AMFI would change it, because the restriction is on your side, not theirs.<br><br><b>The way round it is not to make a cross-site request at all.</b> A small scheduled job on a server — where this rule does not apply — collects the data and writes a file next to this page. The app then reads its own address, which nothing can block.<br><br>GitHub runs that job weekly for free. You set it up once, in about twenty minutes, and then it is genuinely automatic: you and your family open a URL and the numbers are current.`};
+G.whatbuy={t:'From buckets to actual funds',b:`"Shares, bonds, gold, cash" is the decision that changes your outcome. It is also the one you cannot act on at a broker's website, which is why this section exists.`,
+  eg:`The order of importance is not intuitive. <b>How much you invest</b> matters most, by a wide margin. <b>How it is split</b> across the four buckets comes second. <b>Which fund</b> you pick inside a bucket comes a distant third — and among index funds tracking the same index, it barely registers at all.<br><br>Most people spend their attention in exactly the reverse order.`};
+G.otherincome={t:'Other income in retirement',b:`Money you expect to receive after you stop working that is <b>not</b> from the portfolio this app is building — rent, a business, royalties, a spouse's pension.`,
+  eg:`Enter it as a <b>yearly</b> figure in today's money. It reduces the corpus you need, and it reduces it a lot: at typical numbers, every ₹1 lakh a year of reliable other income removes roughly ₹15-20 lakh from the corpus you would otherwise have to build.<br><br>That leverage cuts both ways. Rent from a single property is not the same kind of promise as an indexed pension — the tenant leaves, the roof goes, the area declines. If you are not confident the income survives 25 years, enter a smaller number or none at all, and treat anything extra as upside.`};
 
 /* ============================================================================
    APP
@@ -2209,7 +2219,7 @@ let AUTO={state:'pending',msg:''};
    with two files while you are looking at the old one. No error, nothing to
    see. So the app states which build it is, and you can settle the question by
    looking at the top of the screen. */
-const BUILD="2026-08-20 14:28";
+const BUILD="2026-08-20 15:30";
 /* Display maps. These lived further down the file, AFTER the boot block, which
    meant boot ran while they were still in the temporal dead zone — a blank page
    waiting for one synchronous call to reach them. The build now refuses to
@@ -2217,6 +2227,43 @@ const BUILD="2026-08-20 14:28";
 const ASSET_LABEL={0:'Shares',1:'Bonds',2:'Gold',3:'Cash','mix':'Your plan mix'};
 const A_LABEL={equity:'Shares',debt:'Bonds',gold:'Gold',liquid:'Cash'};
 const A_COLOR={equity:'#3987e5',debt:'#199e70',gold:'#c98500',liquid:'#6b7788'};
+
+/* Instrument suggestions. A constant data table, but it lives up here with the
+   rest of the top-level declarations because the build refuses to assemble a
+   file with a let/const after the boot block — the temporal-dead-zone rule does
+   not care whether the value is mutable. */
+const BUY = {
+  equity: {
+    label:'Shares', what:'A Nifty 50 index fund — the 50 largest listed companies, weighted by size.',
+    criterion:'Pick on <b>expense ratio and tracking error</b>. These three hold the identical 50 stocks in identical proportions, so the only thing separating them is cost and how tightly they follow the index. Anything under about 0.20% is fine.',
+    picks:[
+      ['UTI Nifty 50 Index Fund - Growth Option - Direct','120716','the oldest of the three, largest by assets'],
+      ['Nippon India Index Fund - Nifty 50 Plan - Direct Plan - Growth','118741','same index, comparable cost'],
+      ['Aditya Birla Sun Life Nifty 50 Index Fund - Growth - Direct Plan','119648','same again — a third option so you are not forced into one AMC']
+    ]},
+  debt: {
+    label:'Bonds', what:'A corporate bond fund — lending to large, high-grade Indian companies.',
+    criterion:'Pick on <b>credit quality and duration</b>, not yield. A debt fund advertising a noticeably higher return is taking credit risk you are not being paid enough for; that is where debt funds actually lose money.',
+    picks:[
+      ['HDFC Corporate Bond Fund - Growth Option - Direct Plan','118987','large, long-running, predominantly AAA'],
+      ['ICICI Prudential Corporate Bond Fund - Direct Plan - Growth','120692','same category and profile'],
+      ['Aditya Birla Sun Life Corporate Bond Fund - Growth - Direct Plan','119533','the one this app already tracks for its bond data']
+    ]},
+  gold: {
+    label:'Gold', what:'A gold fund holding physical gold, priced in rupees.',
+    criterion:'It must hold <b>gold</b>, not gold <i>mining shares</i>. A "World Gold" fund holds miners, which behave like equities — that destroys the only reason gold is in this plan, which is that it does not move with your shares.',
+    picks:[
+      ['SBI Gold Fund - Direct Plan - Growth','119788','feeds SBI’s gold ETF, which holds bullion'],
+      ['Nippon India Gold Savings Fund - Direct Plan - Growth','118663','same structure, different house']
+    ]},
+  liquid: {
+    label:'Cash', what:'A liquid fund, or simply a sweep-in bank deposit.',
+    criterion:'Pick on <b>nothing much</b>. Returns across liquid funds differ by fractions of a percent and the sleeve is small. If you would rather keep it in your bank, do that — the plan barely notices.',
+    picks:[
+      ['HDFC Liquid Fund - Growth Option - Direct Plan','119091','large and boring, which is the entire specification'],
+      ['A sweep-in fixed deposit at your own bank','—','no tracking, no redemption wait, marginally less return']
+    ]}
+};
 
 const DEFAULTS={
   age:35,dependents:2,earners:2,stability:'stable',
@@ -2362,13 +2409,16 @@ function addGoal(){
       npsMonthly:S.npsMonthly||0,npsBalance:S.npsBalance||0,
       yearsServiceAtRet:S.yearsServiceAtRet||0,leaveEncash:S.leaveEncash||0,salaryGrowth:0.07,
       daPct:S.daPct>0?S.daPct/100:null});
+    // rOther is labelled "per year", so it is already annual — the old
+    // `(oth/12>0?oth:0)` tested a monthly figure and then passed the annual one,
+    // which was merely confusing rather than wrong, but read as a units bug.
     const corpusFut=retirementCorpus(spend*12,yrs,rAge,life,
-      (oth/12>0?oth:0)+ben.dbAnnualToday,0.15);
+      Math.max(0,oth)+ben.dbAnnualToday,0.15);
     const todayEq=corpusFut/Math.pow(1+INFL.general,yrs);
     g={id:'g'+Date.now(),name:document.getElementById('rName').value||'Retirement',
        baseCost:todayEq,years:yrs,inflKey:'general',existing:exist,priority:pri,
        loanable:false,taxAsset:'equity',isRetire:true,retireAge:rAge,lifeExp:life,
-       monthlySpend:spend};
+       monthlySpend:spend,otherIncome:Math.max(0,oth)};
   }else{
     const cost=parseFloat(document.getElementById('gCost').value)||0;
     const yrs=parseFloat(document.getElementById('gYears').value)||0;
@@ -2572,6 +2622,9 @@ function calcNow(out){
 
     LASTPLAN.goals.push({name:g.name,priority:g.priority,loanable:!!g.loanable,years:g.years,
       baseCost:g.baseCost,infl:gi,target:g.target,sip:g.sip,existing:g.existing||0,
+      isRetire:!!g.isRetire,grossTarget:g.grossTarget,epfAtGoal:g.epfAtGoal,
+      otherIncome:g.otherIncome||0,monthlySpend:g.monthlySpend||0,
+      retireAge:g.retireAge,lifeExp:g.lifeExp,
       rc,er,w:a.w,binding:a.binding,lo,hi,stressLo,stressHi,
       p10:r.p[10],p50:r.p[50],p90:r.p[90]});
     html+=`<div class="card"><h2>${g.name}</h2>
@@ -2678,7 +2731,7 @@ function calcNow(out){
       <br><br>That is the whole argument for spending your effort on the boring parts.</div></div>`;
   }
 
-  html=html.replace('<!--GLANCE-->',glanceCard());
+  html=html.replace('<!--GLANCE-->',glanceCard()+whatToBuyCard());
   html=html.replace('<!--BENEFITS-->',childrenPanel()+benefitsPanel());
   html+=riskPanel();
   html+=workPanel();
@@ -2705,6 +2758,10 @@ function renderAlts(){
   </div>
 
   <div class="card"><h2>Work out the break-even</h2>
+    <div class="note"><b>Nothing to fill in.</b> Every box below is already set to a typical Category III AIF
+      pitch — 15% gross, 2% management fee, 20% of profits above an 8% hurdle — and the verdict updates as you
+      read. Change a number only when somebody puts a specific product in front of you and you want to test
+      <i>their</i> claim. Like the Timing tab, none of this touches your plan.</div>
     <div class="row">
       <div><label>Gross return before all costs (%/yr)</label><input id="aG" type="number" value="15" oninput="calcAlt()"></div>
       <div><label>Index fund cost (%/yr) ${inf('ter')}</label><input id="aT" type="number" value="0.3" step="0.05" oninput="calcAlt()"></div>
@@ -3413,9 +3470,13 @@ function renderChase(){
     <br><br>The good news: the half that works can be mechanised completely, with no forecast and no nerve required. <b>Rebalancing does it automatically.</b> When shares crash you are underweight, so restoring your target means buying more of them cheaply. When shares surge you are overweight, so it trims. That is "greedy when others are fearful" turned into arithmetic.
     <br><br>Below, four ways of acting on the instinct, simulated head to head.</div>
     <div class="row">
-      <div><label>Years</label><input id="tmY" type="number" value="20" oninput="runTiming()"></div>
-      <div><label>Shares % target</label><input id="tmE" type="number" value="60" oninput="runTiming()"></div>
+      <div><label>Years</label><input id="tmY" type="number" inputmode="numeric" value="20" oninput="runTiming()"></div>
+      <div><label>Shares % target</label><input id="tmE" type="number" inputmode="numeric" value="60" oninput="runTiming()"></div>
     </div>
+    <div class="note"><b>You do not need to enter anything here.</b> The two boxes are already filled with a
+      sensible case and the answer below is live. They exist so you can check the conclusion still holds for
+      <i>your</i> horizon and <i>your</i> equity share — change them only if you want to see that. Nothing on
+      this tab feeds your plan; it is a question being answered, not a form being filled.</div>
     <div id="timeRes" style="margin-top:14px"></div>
   </div>
 
@@ -3934,6 +3995,109 @@ function glanceData(){
     goals:P.goals.filter(g=>g.sip>0||g.existing>0)};
 }
 
+/* The previous version of this was a four-column table: goal, monthly, typical
+   end, chance. It never showed the TARGET. So the benefits panel would say
+   "you must build 3.75 crore" and this would say "typical end 62 lakh", with
+   nothing on screen connecting the two, and the second number read as though it
+   were the requirement. Every figure was correct and the pair of them told you
+   something false. A projection without the thing it is being measured against
+   is not a result, it is a number. */
+function goalSummary(g){
+  const short = Math.max(0, g.target - g.p50);
+  const spare = Math.max(0, g.p50 - g.target);
+  const todayEq = g.target/Math.pow(1+(g.infl||INFL.general), g.years);
+  /* Use the SAME verdict function as the detailed goal card further down the
+     page. Two verdicts derived two different ways will eventually disagree with
+     each other on the same screen, and the reader has no way to tell which one
+     to believe. */
+  const v = bandLabel(g.lo, g.hi);
+  return `<div style="border:1px solid var(--line);border-radius:12px;padding:12px;margin:10px 0">
+    <div style="font-weight:600;font-size:14.5px">${g.name}
+      <span style="color:var(--tx3);font-weight:400;font-size:12.5px"> · ${g.years.toFixed(0)} years away</span></div>
+    <div class="kv" style="margin-top:8px"><span class="k">What you need by then</span>
+      <span class="v">₹${fmt(g.target)}<div style="font-size:11px;color:var(--tx3);font-weight:400">₹${fmt(todayEq)} in today's money</div></span></div>
+    <div class="kv"><span class="k">What you put in</span>
+      <span class="v">₹${fmt(g.sip)}/month${g.existing>0?`<div style="font-size:11px;color:var(--tx3);font-weight:400">plus ₹${fmt(g.existing)} already saved</div>`:''}</span></div>
+    <div class="kv"><span class="k">Where it usually lands</span>
+      <span class="v">₹${fmt(g.p50)}<div style="font-size:11px;color:var(--tx3);font-weight:400">${g.lo===g.hi?pct(g.lo):pct(g.lo)+'–'+pct(g.hi)} chance of reaching the target</div></span></div>
+    <div class="note ${v.c}" style="margin-top:10px"><b>${v.t}.</b> ${short>0
+      ? `In the middle outcome you finish about <b>₹${fmt(short)}</b> short. That is the gap to close — see "What if you changed something?" below.`
+      : `In the middle outcome you finish about <b>₹${fmt(spare)}</b> clear of the target.`}</div>
+  </div>`;
+}
+
+/* Money typed on the You tab as "investments you already have" is used for ONE
+   thing: reducing how much life cover you need. It is not attached to any goal,
+   so it does not appear in any projection. That is defensible — the app cannot
+   know which goal a lump belongs to — but leaving it unsaid means someone reads
+   a shortfall that their own portfolio has already closed. */
+function unattachedSavingsNote(){
+  const attached=(LASTPLAN&&LASTPLAN.goals||[]).reduce((a,g)=>a+(g.existing||0),0);
+  const have=S.investments||0;
+  const loose=have-attached;
+  if(loose<=Math.max(100000, have*0.10))return '';
+  return `<div class="note warn"><b>₹${fmt(loose)} of your existing investments is not attached to any goal, so none of the numbers above include it.</b>
+    You told the app you hold ₹${fmt(have)}${attached>0?`, and ₹${fmt(attached)} of that is assigned to goals`:''}.
+    The rest is only being used to reduce how much life cover you need.
+    <br><br>To make it count, open the <b>Goals</b> tab, edit each goal, and put the relevant amount in
+    <i>"already saved for this"</i>. The app deliberately will not guess the split for you — deciding
+    that a particular ₹20 lakh is retirement money rather than house money is your call, not arithmetic,
+    and guessing it would silently change every probability on this screen.</div>`;
+}
+
+
+/* ---------- what to actually buy ----------
+   "Shares, bonds, gold, cash" is the decision that matters and the one nobody
+   can act on. This turns it into instruments.
+
+   Every scheme below was checked against the AMFI feed on 20 Aug 2026: the name
+   is exact, the plan is Direct and Growth, and the fund was still publishing
+   NAVs. They are examples of a CATEGORY, picked on cost and structure, and
+   nothing here is a relationship or a recommendation to buy.                */
+
+function whatToBuyCard(){
+  const G0=glanceData(); if(!G0||G0.total<=0)return '';
+  const order=['equity','debt','gold','liquid'].filter(a=>G0.split[a]>1);
+  const epfCovers=(S.epfMonthly||0)>0;
+  const blocks=order.map(a=>{
+    const B=BUY[a], amt=G0.split[a];
+    return `<div style="border:1px solid var(--line);border-radius:12px;padding:12px;margin:10px 0">
+      <div style="font-weight:600"><i class="sw" style="background:${A_COLOR[a]};display:inline-block;margin-right:8px"></i>${B.label}
+        <span style="color:var(--acc2)">— ₹${fmt(amt)}/month</span></div>
+      <div style="font-size:13px;color:var(--tx2);margin:6px 0 10px">${B.what}</div>
+      ${B.picks.map(([n,c,why])=>`<div style="font-size:13px;margin:7px 0 7px 2px">
+        <div style="color:var(--tx)">${n}</div>
+        <div style="font-size:11.5px;color:var(--tx3)">${c==='—'?'':'AMFI code '+c+' · '}${why}</div></div>`).join('')}
+      <div class="note" style="margin-top:8px">${B.criterion}</div>
+    </div>`;
+  }).join('');
+
+  return `<div class="card"><h2>What to actually buy ${inf('whatbuy')}</h2>
+    <p class="hint">The monthly figure above <b>is</b> your SIP. This is where to run it. Pick <b>one</b> fund from each block — not three. Four funds is a complete portfolio; twelve is the most common way a good plan turns into an unmanageable one.</p>
+    ${blocks}
+    ${epfCovers?`<div class="note ok"><b>Your EPF is already your bond allocation, and a better one.</b> It pays 8.25% tax-free. A corporate bond fund pays around ${pct(CMA.debt.mu,1)} and is taxed at your slab rate, so after tax it is meaningfully behind. If your EPF contribution is large relative to the bond figure above, you may not need a bond fund at all — the app already counts your EPF towards retirement. ${inf('epf')}</div>`:''}
+    <div class="note warn"><b>You asked for the top three. That question has no answer, and it is worth knowing why.</b>
+      Ranking funds by past returns picks the one that was luckiest in the period you happened to look at.
+      This app measured it directly on the Timing tab: chasing last year's winner needs about
+      <b>3.5% a year of genuine, repeatable skill</b> just to break even against holding a plain index fund,
+      after the costs and taxes of switching. Almost nobody clears that bar, and you cannot identify the ones
+      who do in advance.
+      <br><br>So the three above are not ranked. For index funds they are near-identical by construction —
+      same 50 stocks, same weights — and choosing between them on last year's return is choosing on noise.
+      Pick whichever is cheapest today, or simply the one whose AMC you already have an account with.</div>
+    <div class="note"><b>Buy Direct plans, not Regular.</b> Same fund, same manager, same portfolio — the Regular
+      version simply pays a distributor out of your returns, roughly 0.5–1.0% a year, every year, forever.
+      Over ${G0.goals.length?Math.round(Math.max(...G0.goals.map(g=>g.years))):20} years that compounds into a
+      large number for doing nothing. Every scheme named above is the Direct Growth version; check the words
+      "Direct" and "Growth" appear before you confirm any purchase.
+      <br><br><b>Growth, not IDCW.</b> IDCW pays you back your own money and taxes you for it.</div>
+    <div class="note"><b>These are examples, not advice.</b> Each name was checked against the AMFI feed on
+      20 August 2026 — exact name, Direct Growth plan, still publishing NAVs. They were chosen on cost and
+      structure, which are knowable in advance, rather than on performance, which is not. Verify the current
+      expense ratio yourself before buying; it changes, and this file does not.</div>
+  </div>`;
+}
+
 function glanceCard(){
   const G0=glanceData();
   if(!G0)return '';
@@ -3951,9 +4115,7 @@ function glanceCard(){
   const rows=['equity','debt','gold','liquid'].filter(a=>G0.split[a]>1).map(a=>
     `<div class="kv"><span class="k"><i class="sw" style="background:${A_COLOR[a]};display:inline-block;margin-right:8px"></i>${A_LABEL[a]}</span>
      <span class="v">₹${fmt(G0.split[a])}<span style="color:var(--tx3);font-weight:400"> · ${pct(G0.split[a]/G0.total)}</span></span></div>`).join('');
-  const gl=G0.goals.map(g=>`<tr><td>${g.name}<div style="font-size:11px;color:var(--tx3)">${g.years.toFixed(0)} years</div></td>
-    <td class="num">₹${fmt(g.sip)}</td><td class="num">₹${fmt(g.p50)}</td>
-    <td class="num" style="font-size:12px">${g.lo===g.hi?pct(g.lo):pct(g.lo)+'–'+pct(g.hi)}</td></tr>`).join('');
+  const gl=G0.goals.map(g=>goalSummary(g)).join('');
   return `<div class="card" style="border-color:var(--acc)">
     <h2 style="font-size:17px">Start here ${inf('glance')}</h2>
     <p class="hint">Everything below this card is the reasoning. This is the doing.</p>
@@ -3964,7 +4126,8 @@ function glanceCard(){
       G0.split[a]/G0.total>0.02?`<div style="width:${G0.split[a]/G0.total*100}%;background:${A_COLOR[a]}">${G0.split[a]/G0.total>0.09?Math.round(G0.split[a]/G0.total*100)+'%':''}</div>`:'').join('')}</div>
     ${rows}
     <h3>What each goal gets</h3>
-    <table><thead><tr><th>Goal</th><th>Monthly</th><th>Typical end</th><th>Chance</th></tr></thead><tbody>${gl}</tbody></table>
+    ${gl}
+    ${unattachedSavingsNote()}
     <h3>Expected return on this mix</h3>
     <div class="kv"><span class="k">Before inflation</span><span class="v">${pct(G0.blended,1)}/yr</span></div>
     <div class="kv"><span class="k">After inflation ${inf('realreturn')}</span><span class="v">${pct(G0.real,1)}/yr</span></div>
@@ -4093,11 +4256,25 @@ function benefitsFor(yearsToRetire,retireAge,lifeExp){
     salaryGrowth:0.07, daPct:S.daPct>0?S.daPct/100:null});
 }
 
+/* This panel used to recompute the retirement corpus from scratch instead of
+   reading the number the plan had already built. The two calculations then
+   disagreed, because the recomputation silently dropped the "other income in
+   retirement" you entered: the goal card honoured it, this panel did not, and
+   the same screen showed a corpus of 1.32 crore in one card and 3.64 crore in
+   the next. Both were arithmetically correct answers to different questions,
+   and there was no way to tell which one your SIP was based on. (It was the
+   goal card's.)
+
+   The fix is not to add the missing argument. It is to stop having a second
+   calculation at all — this now reads grossTarget, epfAtGoal and target
+   straight off the goal the plan actually used. Two paths to one number will
+   drift apart eventually; one path cannot. */
 function benefitsPanel(){
-  const rg=GOALS.find(g=>g.isRetire); if(!rg)return '';
-  const ben=benefitsFor(rg.years,rg.retireAge,rg.lifeExp);
-  const gap=retirementGap(rg.monthlySpend*12,rg.years,rg.retireAge,rg.lifeExp,ben);
-  if(gap.covered<=0&&ben.dbAnnualToday<=0)return '';
+  const rg=(LASTPLAN&&LASTPLAN.goals||[]).find(g=>g.isRetire);
+  if(!rg)return '';
+  const ben=benefitsFor(rg.years,rg.retireAge!=null?rg.retireAge:60,rg.lifeExp!=null?rg.lifeExp:88);
+  const gap={gross:rg.grossTarget, covered:rg.epfAtGoal, net:rg.target};
+  if(gap.covered<=0&&ben.dbAnnualToday<=0&&!(rg.otherIncome>0))return '';
   const covPct=gap.gross>0?1-gap.net/gap.gross:0;
   const rows=[
     ['Provident fund ('+ben.fundLabel+' at '+pct(ben.pfRate,2)+')',ben.pfAtRet],
@@ -4118,7 +4295,17 @@ function benefitsPanel(){
     ${rows.map(r=>`<div class="kv"><span class="k">${r[0]}</span><span class="v">₹${fmt(r[1])}</span></div>`).join('')}
     ${rows.length>1?`<div class="kv"><span class="k"><b>Total</b></span><span class="v">₹${fmt(ben.lumpTotal)}</span></div>`:''}
     <h3>So what is left for you?</h3>
-    <div class="kv"><span class="k">Corpus you would need with no benefits</span><span class="v">₹${fmt(gap.gross)}</span></div>
+    ${rg.otherIncome>0&&rg.monthlySpend>0&&rg.otherIncome>rg.monthlySpend*12*0.9?`<div class="note bad"><b>Check the "other income" figure — it looks like a lump sum.</b>
+      You have entered <b>₹${fmt(rg.otherIncome)} a year</b> against retirement spending of ₹${fmt(rg.monthlySpend*12)} a year.
+      That says your other income covers ${pct(Math.min(3,rg.otherIncome/(rg.monthlySpend*12)))} of everything you plan to spend,
+      which would mean you barely need a portfolio at all — and that is exactly what the numbers on this page now say.
+      <br><br>The usual cause is a <b>pot of money typed into a yearly-income box</b>: an EPF balance, a maturity value,
+      a property's worth. Entered here, the model believes you receive that amount <i>every year for the rest of your life</i>.
+      A ₹50 lakh EPF balance becomes ₹14 crore of income across a 28-year retirement.
+      <br><br>If it really is a recurring yearly income of this size, ignore this. Otherwise open the Goals tab and fix it —
+      nothing else on this page is trustworthy until you do.</div>`:''}
+    ${rg.otherIncome>0?`<div class="note ok">You told the app you expect <b>₹${fmt(rg.otherIncome)} a year</b> of other income in retirement — rent, a business, a spouse's pension. That income does the work a corpus would otherwise have to do, which is why the figure below is smaller than it would be without it. Remove it on the Goals tab if it is not reliable; it is doing a lot of lifting here. ${inf('otherincome')}</div>`:''}
+    <div class="kv"><span class="k">Corpus you would need${rg.otherIncome>0?', after that income':' with no benefits'}</span><span class="v">₹${fmt(gap.gross)}</span></div>
     <div class="kv"><span class="k">Covered by the above</span><span class="v" style="color:var(--ok)">− ₹${fmt(gap.covered)}</span></div>
     <div class="kv"><span class="k"><b>Left for you to build</b></span><span class="v">₹${fmt(gap.net)}</span></div>
     <div class="note ok">Your job covers <b>${pct(covPct)}</b> of your retirement. ${ben.dbAnnualToday>0
