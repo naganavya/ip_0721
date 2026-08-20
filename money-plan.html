@@ -2142,7 +2142,7 @@ G.basicpay={t:'Basic pay',b:`The "basic" line on your payslip — not gross, not
 
 G.children={t:'What a child really costs',b:`A child is not a goal. It is a stream of costs lasting about 26 years, and the strand almost everyone plans for turns out to be the smallest one.`,
   eg:`For one child born today, in today's money: day-to-day living ₹10.9 L, school fees ₹14.8 L, higher education ₹16.6 L, a wedding ₹8.2 L. Total ₹50.5 L — about ₹2.36 crore in rupees actually handed over across 26 years.<br><br><b>Higher education is 33% of it.</b> That is the only strand goal calculators model, because it is a lump sum. Living and school fees are 51% and get modelled by nobody, because they come out of monthly income rather than a corpus.<br><br>Knowing the number does not make it smaller. It does stop you building a twenty-year plan on a surplus that is about to shrink.`};
-G.kidliving={t:'Day-to-day cost of a child',b:`Food, clothes, medical, childcare, transport, activities — everything except school fees and the big lumps.`,
+G.kidliving={t:'Day-to-day cost of a child',b:`<b>Enter this as a MONTHLY figure.</b> Food, clothes, medical, childcare, transport, activities — everything except school fees and the big lumps. "Day-to-day" describes the kind of spending, not the period you type in.`,
   eg:`It is not flat across childhood. Infants are expensive in care and medical costs; school-age children shift much of the cost into fees; teenagers away studying cost less at home. The model uses roughly 100% of your figure for ages 0-3, 65% for 3-18 and 40% for 18-22.<br><br>If your children are already here, this is <b>already inside the essentials</b> you entered, so the app does not count it twice.`};
 G.kidschool={t:'School fees',b:`Annual fees from about age 3 to 18, rising at education inflation rather than general inflation.`,
   eg:`Fifteen years of this is a larger number in present value than the degree everyone saves for — ₹14.8 L versus ₹16.6 L on typical figures, and that is before uniforms, books, transport and coaching, which most families underestimate by a wide margin.<br><br>It is deliberately <i>not</i> turned into a goal. You pay school fees out of income, not out of a corpus you spent fifteen years building, so treating it as a savings target would misrepresent how the money actually moves.`};
@@ -2209,7 +2209,7 @@ let AUTO={state:'pending',msg:''};
    with two files while you are looking at the old one. No error, nothing to
    see. So the app states which build it is, and you can settle the question by
    looking at the top of the screen. */
-const BUILD="2026-08-20 13:56";
+const BUILD="2026-08-20 14:28";
 /* Display maps. These lived further down the file, AFTER the boot block, which
    meant boot ran while they were still in the temporal dead zone — a blank page
    waiting for one synchronous call to reach them. The build now refuses to
@@ -4140,7 +4140,7 @@ function renderKids(){
       const when=k.ageNow!=null?`age ${k.ageNow} now`:`arriving in about ${k.arrivesIn} year${k.arrivesIn===1?'':'s'}`;
       return `<div class="goal"><div class="gh"><div>
         <div class="gn">${k.name||('Child '+(i+1))}</div>
-        <div class="gm">${when} · school ₹${fmt(k.schoolAnnual)}/yr · degree ₹${fmt(k.higherEd)}${k.includeMarriage?' · wedding ₹'+fmt(k.marriage):''}</div>
+        <div class="gm">${when} · living ₹${fmt(k.livingMonthly)}/mo · school ₹${fmt(k.schoolAnnual)}/yr · degree ₹${fmt(k.higherEd)}${k.includeMarriage?' · wedding ₹'+fmt(k.marriage):''}</div>
         <div class="gm">Whole cost in today's money: <b style="color:var(--tx)">₹${fmt(p.total)}</b></div>
         </div><button class="del" onclick="delKid('${k.id}')">remove</button></div></div>`;
     }).join('');
@@ -4154,9 +4154,13 @@ function renderKids(){
     <div id="kAgeRow"><label>Their age now</label><input id="kAge" type="number" inputmode="numeric" value="0"></div>
     <div id="kInRow" style="display:none"><label>In how many years?</label><input id="kIn" type="number" inputmode="numeric" value="3"></div>
     <div class="row">
-      <div><label>Day-to-day cost ${inf('kidliving')}</label><input id="kLive" type="number" value="${CHILD_DEFAULTS.livingMonthly}"></div>
-      <div><label>School fees per year ${inf('kidschool')}</label><input id="kSchool" type="number" value="${CHILD_DEFAULTS.schoolAnnual}"></div>
+      <div><label>Day-to-day cost <b>per month</b> ${inf('kidliving')}</label><input id="kLive" type="number" inputmode="numeric" value="${CHILD_DEFAULTS.livingMonthly}"></div>
+      <div><label>School fees <b>per year</b> ${inf('kidschool')}</label><input id="kSchool" type="number" inputmode="numeric" value="${CHILD_DEFAULTS.schoolAnnual}"></div>
     </div>
+    <div class="note">Two different periods on one row, deliberately: living costs are what you
+      feel monthly, school fees arrive as an annual bill. Both boxes say which they are —
+      a figure entered as a daily amount would be read as a monthly one and quietly plan
+      for about a thirtieth of the real cost, with nothing on screen looking wrong.</div>
     <div class="row">
       <div><label>Degree at 18, today's cost</label><input id="kEd" type="number" value="${CHILD_DEFAULTS.higherEd}"></div>
       <div><label>Wedding, today's cost</label><input id="kWed" type="number" value="${CHILD_DEFAULTS.marriage}"></div>
