@@ -89,6 +89,30 @@ const VOL_RULES = {          // annualised, generous bounds — catching blunder
   liquid: [0.0, 0.03]
 };
 
+/* A SINGLE bad NAV print is not the same thing as the wrong fund, and the two
+   need different answers.
+
+   One stray value — a mis-keyed decimal, a NAV from a different plan, a day
+   the AMC filed the wrong number — poisons the whole series if it is left in.
+   It shows up as an implausible one-month move and then again, reversed, the
+   month after. Standard deviation is not robust to that: one outlier of 60
+   in a 62-month series of 0.005s produces an annualised volatility in the
+   thousands of percent, and a check that only looks at the total will
+   conclude the fund is the wrong kind of animal when it is the right fund
+   with one bad row.
+
+   So the two are separated. Months whose move is arithmetically impossible for
+   the asset class are DROPPED — never interpolated, and reported with the
+   NAVs and dates that produced them. Only if such months are common does the
+   label itself come into question. */
+const MOVE_RULES = {         // plausible bounds on ONE month's return
+  equity: [-0.35, 0.35],
+  debt  : [-0.10, 0.12],
+  gold  : [-0.25, 0.30],
+  liquid:[-0.01, 0.02]
+};
+const MAX_BAD_FRACTION = 0.05;   // above this, it is the fund, not the data
+
 /* month key -> NAV, last observation of each month */
 async function navByMonth(code){
   const j = await get(`https://api.mfapi.in/mf/${code}`);
@@ -101,8 +125,11 @@ async function navByMonth(code){
     const prev = m.get(k);
     if(!prev || dd > prev[0]) m.set(k, [dd, nav]);
   }
-  const out = new Map();
-  for(const [k,[,nav]] of m) out.set(k, nav);
+  const out = new Map(), when = new Map();
+  for(const [k,[dd,nav]] of m){
+    out.set(k, nav);
+    when.set(k, `${String(dd).padStart(2,'0')}-${String((k%12)+1).padStart(2,'0')}-${Math.floor(k/12)}`);
+  }
   // newest observation, for the staleness check
   let last = null;
   for(const d of (j.data||[])){
@@ -110,8 +137,8 @@ async function navByMonth(code){
     const t = Date.UTC(yy, mm-1, dd);
     if(last===null || t>last) last = t;
   }
-  return {name: j.meta?.scheme_name || String(code), navs: out, last,
-          category: j.meta?.scheme_category || ''};
+  return {name: j.meta?.scheme_name || String(code), navs: out, when, last,
+          category: j.meta?.scheme_category || '', points: (j.data||[]).length};
 }
 
 /* Four aligned monthly return series, truncated to their common overlap. */
@@ -150,21 +177,59 @@ async function alignedSeries(){
   }
   const keys = [...common].sort((x,y)=>x-y);
 
-  const rows = [];
+  const order = ['equity','debt','gold','liquid'];
+
+  /* Pass one: build every candidate month and mark the impossible ones.
+     A month is dropped for ALL FOUR assets if any single asset's move is
+     impossible, because the point of this series is that the four columns
+     describe the SAME month. Keeping three columns and discarding one would
+     reintroduce exactly the mismatch the alignment exists to prevent. */
+  const candidates = [], dropped = [], moveOffenders = {};
   for(let i=1;i<keys.length;i++){
     if(keys[i]-keys[i-1] !== 1) continue;          // a gap: skip, never interpolate
+    if(order.some(a=>!loaded[a])) continue;        // partial data is refused outright
     const row = [0,0,0,0];
-    const order = ['equity','debt','gold','liquid'];
-    let complete = true;
+    let bad = null;
     order.forEach((a,ix)=>{
-      if(!loaded[a]) { complete = false; return; }
-      row[ix] = +(loaded[a].navs.get(keys[i]) / loaded[a].navs.get(keys[i-1]) - 1).toFixed(6);
+      const n1 = loaded[a].navs.get(keys[i-1]), n2 = loaded[a].navs.get(keys[i]);
+      const r = n2/n1 - 1;
+      row[ix] = +r.toFixed(6);
+      const [lo,hi] = MOVE_RULES[a];
+      if(r < lo || r > hi){
+        bad = bad || [];
+        bad.push({asset:a, r, n1, n2,
+                  from: loaded[a].when.get(keys[i-1]), to: loaded[a].when.get(keys[i])});
+        moveOffenders[a] = (moveOffenders[a]||0) + 1;
+      }
     });
-    if(complete) rows.push(row);
+    if(bad) dropped.push(bad); else candidates.push(row);
   }
+  const rows = candidates;
+  /* Note the honest cost of dropping: the surviving months are no longer
+     strictly contiguous, so a resampled block can splice across a removed
+     month. For a handful of drops in a multi-year series that is a smaller
+     distortion than leaving an impossible return in, but it is a distortion. */
+
+  /* Report what was thrown away, in enough detail to act on. A count alone is
+     useless: "3 months dropped" tells you nothing about whether the fund is
+     wrong or a data provider fat-fingered a decimal. The NAVs do. */
+  const totalMonths = candidates.length + dropped.length;
+  if(dropped.length){
+    const shown = dropped.slice(0,4).map(b=>b.map(x=>
+      `${x.asset} ${x.from} ${x.n1} -> ${x.to} ${x.n2} (${(x.r*100).toFixed(1)}%)`).join('; '));
+    errs.push(`${dropped.length} of ${totalMonths} months dropped for impossible NAV moves — `+
+              `single bad prints in the source data, not a wrong fund, unless the count is large. `+
+              `Worst: ${shown.join(' | ')}`);
+  }
+  Object.entries(moveOffenders).forEach(([a,n])=>{
+    if(totalMonths && n/totalMonths > MAX_BAD_FRACTION)
+      errs.push(`${a}: ${n} of ${totalMonths} months move by amounts impossible for ${a}. `+
+                `That is too many to be bad prints. "${loaded[a].name}" is REJECTED as the wrong kind of fund.`);
+  });
+
   // Second opinion: does each series BEHAVE like the thing it claims to be?
-  // A fund can be named plausibly and still be the wrong kind of animal.
-  const order = ['equity','debt','gold','liquid'];
+  // Measured AFTER dropping impossible months, so one stray NAV cannot make a
+  // perfectly good liquid fund look like it has 2700% volatility.
   const vols = {};
   order.forEach((a,ix)=>{
     if(!loaded[a] || !rows.length) return;
@@ -173,7 +238,8 @@ async function alignedSeries(){
     const [lo,hi] = VOL_RULES[a];
     if(v!=null && (v < lo || v > hi))
       errs.push(`${a}: volatility ${(v*100).toFixed(1)}%/yr is outside the ${(lo*100)}-${(hi*100)}% `+
-                `range expected for ${a}. "${loaded[a].name}" is probably the wrong kind of fund.`);
+                `range expected for ${a}, measured over ${rows.length} clean months. `+
+                `"${loaded[a].name}" is the wrong kind of fund.`);
   });
   // gold that moves with equities is not doing the job gold is there to do
   if(rows.length>24 && loaded.equity && loaded.gold){
@@ -192,7 +258,16 @@ async function alignedSeries(){
   const bad = errs.some(e=>/REJECTED|wrong kind|almost certainly/.test(e));
   const names = {}; have.forEach(a=>names[a]=loaded[a].name);
   const ages  = {}; have.forEach(a=>ages[a]=loaded[a].ageDays);
+  const diag  = {};
+  have.forEach(a=>{
+    const ks=[...loaded[a].navs.keys()].sort((x,y)=>x-y);
+    diag[a]={points:loaded[a].points, months:ks.length,
+             first:loaded[a].when.get(ks[0]), last:loaded[a].when.get(ks[ks.length-1]),
+             firstNav:loaded[a].navs.get(ks[0]), lastNav:loaded[a].navs.get(ks[ks.length-1]),
+             droppedMonths: moveOffenders[a]||0};
+  });
   return {series: (rows.length>=MIN_USABLE_MONTHS && !bad) ? rows : null, errs, names, vols, ages,
+          diag, dropped: dropped.length,
           months: rows.length, assets: have,
           complete: have.length === 4 && rows.length>=MIN_USABLE_MONTHS && !bad};
 }
@@ -275,6 +350,8 @@ function assumptions(infl){
     seriesNames: S.names,
     seriesVols: S.vols || {},
     seriesAgeDays: S.ages || {},
+    seriesDiagnostics: S.diag || {},
+    seriesDroppedMonths: S.dropped || 0,
     minUsableMonths: MIN_USABLE_MONTHS,
     errors
   };
