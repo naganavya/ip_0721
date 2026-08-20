@@ -3538,7 +3538,8 @@ function renderCharts(){
     ? `<div class="fresh">Using <b>real market data</b> — ${REALDATA.label}.
         <br><br>Charts and the risk metrics use it. The Monte Carlo uses ${mcSeriesLabel()}.
         ${REALDATA.names&&Object.keys(REALDATA.names).length
-          ? '<br><br><span style="font-size:12px;opacity:.85">'+Object.entries(REALDATA.names).map(([a,n])=>a+': '+n).join('<br>')+'</span>' : ''}</div>`
+          ? '<br><br><span style="font-size:12px;opacity:.85">'+Object.entries(REALDATA.names).map(([a,n])=>a+': '+n).join('<br>')+'</span>' : ''}</div>
+       ${windowLimitNote()}`
     : `<div class="stale"><b>These charts are the model, not history.</b> This file ships with no real market data, so drawing a line and calling it "gold over the last 20 years" would be inventing it. What you see is a series generated to match the assumptions on the Data tab — the right shape, the right volatility, the right fat tails, but not the actual past. Load real data below to make it real. ${inf('simdata')}</div>`}
 
   <div class="card"><h2>What to look at</h2>
@@ -3583,6 +3584,37 @@ function activeSeries(){
    model series is the more honest input, even though it is synthetic. */
 function mcSeries(){
   return (REALDATA && REALDATA.n>=GOOD_HIST_MONTHS) ? REALDATA.series : HIST;
+}
+/* Real data buys accuracy about what DID happen and, in the same move, puts a
+   ceiling on what the simulation can imagine. A bootstrap resamples the sample:
+   it can reorder the crashes in the window, chain them together, put one at the
+   worst possible moment — but it cannot produce a fall the window never
+   contained. An 11-year window that starts after 2008 has no 2008 in it, so the
+   left tail it draws is the left tail of a luckier decade.
+
+   This is the sort of thing that stays unstated and then quietly flatters every
+   downside number on the screen, so it is computed from the series itself and
+   said plainly rather than left as a footnote nobody writes. */
+function windowLimitNote(){
+  if(!REALDATA||!REALDATA.series||REALDATA.n<24)return '';
+  const eq=REALDATA.series.map(r=>r[0]);
+  let worst1=0, worst12=0;
+  for(let i=0;i<eq.length;i++) worst1=Math.min(worst1,eq[i]);
+  for(let i=0;i+12<=eq.length;i++){
+    let p=1; for(let j=0;j<12;j++)p*=1+eq[i+j];
+    worst12=Math.min(worst12,p-1);
+  }
+  const usedForMC = REALDATA.n>=GOOD_HIST_MONTHS;
+  return `<div class="note warn"><b>What this window cannot show you.</b>
+    The worst single month for shares in your ${(REALDATA.n/12).toFixed(1)} years of data is
+    <b>${pct(worst1,1)}</b>, and the worst twelve months is <b>${pct(worst12,1)}</b>.
+    ${usedForMC
+      ? 'The simulation resamples this history, so it can reorder those bad runs, chain them together and land them at the worst moment for you — but it cannot invent a fall bigger than the biggest one here. '
+      : 'The simulation is not using this window, so this is a description of the charts rather than of the projections. '}
+    India fell about 60% in 2008 and roughly 55% in 2000. If your window starts
+    after those, the downside on this screen is the downside of a calmer stretch
+    than the one you might actually live through. Treat the worst case as
+    <i>at least</i> this bad, never as a floor. ${inf('drawdown')}</div>`;
 }
 function mcSeriesLabel(){
   if(REALDATA && REALDATA.n>=GOOD_HIST_MONTHS)
