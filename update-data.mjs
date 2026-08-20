@@ -45,6 +45,39 @@ const get = async (url) => {
   return r.json();
 };
 
+/* A scheme code is just a number, and a wrong one fails SILENTLY: you get real
+   NAV data under the wrong label, so "gold" might actually be a small-cap
+   equity fund. That is worse than a missing feed, because everything still
+   looks like it worked while the correlations — gold's entire reason for being
+   in the portfolio — become nonsense.
+
+   So every fetched fund is checked against its label two ways: by name, and
+   then by behaviour. Both must agree. */
+const NAME_RULES = {
+  equity: {want: /index|nifty|sensex|equity|flexi|large.?cap/i,
+           deny: /gold|silver|liquid|overnight|debt|bond|gilt|money market/i},
+  debt  : {want: /debt|bond|gilt|duration|corporate|banking.*psu|money market/i,
+           deny: /gold|silver|equity|small.?cap|mid.?cap|index|nifty|liquid|overnight/i},
+  gold  : {want: /gold/i,
+           deny: /silver|equity|cap|index|nifty|debt|bond|liquid/i},
+  liquid: {want: /liquid|overnight|money market|ultra.?short/i,
+           deny: /gold|silver|equity|cap|index|nifty|income|gilt|long|medium/i}
+};
+
+/* Rough annualised volatility, used as a second opinion on the label. */
+function annVol(returns){
+  if(returns.length < 24) return null;
+  const m = returns.reduce((a,b)=>a+b,0)/returns.length;
+  const v = returns.reduce((a,b)=>a+(b-m)*(b-m),0)/(returns.length-1);
+  return Math.sqrt(v)*Math.sqrt(12);
+}
+const VOL_RULES = {          // annualised, generous bounds — catching blunders, not tuning
+  equity: [0.08, 0.45],
+  debt  : [0.001, 0.09],
+  gold   : [0.06, 0.30],
+  liquid: [0.0, 0.03]
+};
+
 /* month key -> NAV, last observation of each month */
 async function navByMonth(code){
   const j = await get(`https://api.mfapi.in/mf/${code}`);
@@ -66,7 +99,16 @@ async function navByMonth(code){
 async function alignedSeries(){
   const loaded = {}, errs = [];
   for(const [asset, code] of Object.entries(FUNDS)){
-    try { loaded[asset] = await navByMonth(code); }
+    try {
+      const f = await navByMonth(code);
+      const r = NAME_RULES[asset];
+      if(r && (!r.want.test(f.name) || r.deny.test(f.name))){
+        errs.push(`${asset} (${code}): REJECTED — "${f.name}" does not look like a ${asset} fund. `+
+                  `Find the right code at api.mfapi.in/mf/search?q=<fund name>`);
+        continue;
+      }
+      loaded[asset] = f;
+    }
     catch(e){ errs.push(`${asset} (${code}): ${e.message}`); }
   }
   const have = Object.keys(loaded);
@@ -92,10 +134,34 @@ async function alignedSeries(){
     });
     if(complete) rows.push(row);
   }
+  // Second opinion: does each series BEHAVE like the thing it claims to be?
+  // A fund can be named plausibly and still be the wrong kind of animal.
+  const order = ['equity','debt','gold','liquid'];
+  const vols = {};
+  order.forEach((a,ix)=>{
+    if(!loaded[a] || !rows.length) return;
+    const v = annVol(rows.map(r=>r[ix]));
+    vols[a] = v;
+    const [lo,hi] = VOL_RULES[a];
+    if(v!=null && (v < lo || v > hi))
+      errs.push(`${a}: volatility ${(v*100).toFixed(1)}%/yr is outside the ${(lo*100)}-${(hi*100)}% `+
+                `range expected for ${a}. "${loaded[a].name}" is probably the wrong kind of fund.`);
+  });
+  // gold that moves with equities is not doing the job gold is there to do
+  if(rows.length>24 && loaded.equity && loaded.gold){
+    const e=rows.map(r=>r[0]), g=rows.map(r=>r[2]);
+    const me=e.reduce((a,b)=>a+b,0)/e.length, mg=g.reduce((a,b)=>a+b,0)/g.length;
+    let c=0,ve=0,vg=0;
+    for(let i=0;i<e.length;i++){c+=(e[i]-me)*(g[i]-mg);ve+=(e[i]-me)**2;vg+=(g[i]-mg)**2}
+    const corr=c/Math.sqrt(ve*vg);
+    if(corr > 0.5) errs.push(`gold: correlation with equity is ${corr.toFixed(2)}. Real gold sits near `+
+                             `zero or below. "${loaded.gold.name}" is almost certainly an equity fund.`);
+  }
+  const bad = errs.some(e=>/REJECTED|wrong kind|almost certainly/.test(e));
   const names = {}; have.forEach(a=>names[a]=loaded[a].name);
-  return {series: rows.length>=24 ? rows : null, errs, names,
+  return {series: (rows.length>=24 && !bad) ? rows : null, errs, names, vols,
           months: rows.length, assets: have,
-          complete: have.length === 4};
+          complete: have.length === 4 && !bad};
 }
 
 async function inflation(){
@@ -142,6 +208,7 @@ function assumptions(infl){
     seriesAssets: S.assets,
     seriesComplete: !!S.complete,
     seriesNames: S.names,
+    seriesVols: S.vols || {},
     errors
   };
 
@@ -151,6 +218,9 @@ function assumptions(infl){
   console.log(`  inflation ${payload.inflation}%  ·  equity ${payload.equity}%`);
   console.log(`  aligned series: ${payload.seriesMonths} months across ${S.assets.length}/4 assets` +
               (payload.seriesComplete ? ' (complete)' : ' — INCOMPLETE, correlations will be partial'));
-  Object.entries(S.names).forEach(([a,n])=>console.log(`    ${a.padEnd(7)} ${n}`));
+  Object.entries(S.names).forEach(([a,n])=>{
+    const v=(S.vols||{})[a];
+    console.log(`    ${a.padEnd(7)} ${n}${v!=null?`  [vol ${(v*100).toFixed(1)}%/yr]`:''}`);
+  });
   if(errors.length) console.log('  warnings:\n    '+errors.join('\n    '));
 })();
