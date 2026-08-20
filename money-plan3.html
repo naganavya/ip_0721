@@ -426,11 +426,18 @@ const ASSETS=['equity','debt','gold','liquid'];
    Built up from components (Grinold-Kroner), NOT extrapolated from Indian
    history. Indian equity has historically returned more than this; India was
    among the best-performing markets of the last 30 years and assuming a repeat
-   is selection bias. Debt is anchored to the CURRENT yield curve, which is the
-   single highest-confidence input in the whole model.                       */
+   is selection bias.
+
+   A correction after audit: an earlier version of this comment said debt was
+   "anchored to the CURRENT yield curve". It is not, and never was. Nothing in
+   this app reads a bond yield. The debt number is a hand-set figure chosen to
+   sit near the 10-year government yield at the time of writing, and when the
+   data feed overrides it, it becomes CPI plus a fixed 1.8% spread — which will
+   drift away from the actual curve. Saying otherwise made the weakest-sourced
+   input sound like the strongest.                                           */
 const CMA={
   equity:{mu:0.110,sd:0.180,why:'Dividend yield 1.2% + real earnings growth 5.5% + repricing −0.7% + inflation 5.0%'},
-  debt  :{mu:0.068,sd:0.035,why:'Current sovereign + AAA curve, less ~35bp expected credit and roll drag'},
+  debt  :{mu:0.068,sd:0.035,why:'Set to sit close to the 10-year government bond yield, less about 35bp of expected credit and roll drag. This is a JUDGEMENT set by hand, not a live reading of the curve — the app does not fetch bond yields. It is the one assumption you can check yourself in ten seconds, and the one most worth checking.'},
   gold  :{mu:0.065,sd:0.150,why:'Inflation 5.0% + ~1.5% rupee-depreciation drift. Gold pays no income, so its real return is near zero.'},
   liquid:{mu:0.058,sd:0.007,why:'Policy rate corridor less fund costs'}
 };
@@ -567,9 +574,25 @@ const WORK={sims:0,paths:0,monthSteps:0,t0:0,ms:0};
 function workReset(){WORK.sims=0;WORK.paths=0;WORK.monthSteps=0;WORK.t0=Date.now()}
 function workDone(){WORK.ms=Date.now()-WORK.t0;return WORK}
 
+/* Block length must be small relative to the sample. With 24 months of history
+   and a 24-month mean block, every "independent" path is a rotation of the same
+   two years: the spread collapses and the model reports a confident, narrow
+   probability that is an artefact of having almost no data. Short history is
+   exactly when a bootstrap looks most trustworthy and is least trustworthy.
+   So the block adapts to the sample, and very short samples are refused. */
+const MIN_HIST_MONTHS = 60;      // below this, refuse to bootstrap at all
+const GOOD_HIST_MONTHS = 120;    // below this, usable but flagged as thin
+function blockFor(nH){
+  return Math.max(6, Math.min(24, Math.round(nH/8)));
+}
+
 function simulateGoal(goal,alloc,H,opts){
   opts=opts||{};
-  const nPaths=opts.paths||4000, meanBlock=opts.block==null?24:opts.block;
+  if(!Array.isArray(H)||H.length<MIN_HIST_MONTHS)
+    throw new Error(`simulateGoal: ${H?H.length:0} months of history is not enough to `+
+      `bootstrap from (minimum ${MIN_HIST_MONTHS}). Resampling this little data manufactures `+
+      `false precision rather than measuring uncertainty.`);
+  const nPaths=opts.paths||4000, meanBlock=opts.block==null?blockFor(H.length):opts.block;
   const capCap=opts.capCap==null?1:opts.capCap, glide=opts.glide!==false;
   const nM=Math.max(1,Math.round(goal.years*12));
   WORK.sims++; WORK.paths+=nPaths; WORK.monthSteps+=nPaths*nM;
@@ -1466,7 +1489,7 @@ function histogram(a,bins){
 function forwardFan(H,col,years,opts){
   opts=opts||{};
   const paths=opts.paths||3000, start=opts.start||100000, sip=opts.sip||0;
-  const rng=makeRng(opts.seed||20260819), nH=H.length, p=1/24, nM=Math.round(years*12);
+  const rng=makeRng(opts.seed||20260819), nH=H.length, p=1/blockFor(nH), nM=Math.round(years*12);
   const step=Math.max(1,Math.round(nM/40));
   const snaps=[]; for(let m=0;m<=nM;m+=step)snaps.push(m);
   if(snaps[snaps.length-1]!==nM)snaps.push(nM);
@@ -1602,13 +1625,39 @@ function portfolioRisk(H,w,opts){
    accordingly instead of treating it as equivalent to a pension.
    ========================================================================== */
 
+/* CORRECTED after audit. Three things were wrong here and all three erred in
+   the dangerous direction — they made retirement look better funded than it is.
+
+   1. UPS was credited with BOTH a 50% assured pension AND an NPS-style 60%
+      lump withdrawal of the accumulated corpus. Under UPS the corpus is the
+      funding vehicle for the payout, not an extra asset: at superannuation the
+      individual corpus transfers to the pool up to a benchmark value, and if
+      it falls short the assured payout is reduced. Counting both is double
+      counting, and it was large.
+   2. UPS employer contribution was recorded as 18.5%. Only 10% goes to the
+      individual corpus; the additional ~8.5% goes to a POOLED fund the member
+      does not own.
+   3. Post-2004 recruits were given GPF. GPF has been closed to them since 2004.
+      GPF also earns 7.1%, not the 8.25% EPF rate the code applied to both.
+
+   pf      : which fund the person actually has, and the rate it earns
+   db      : assured pension as a fraction of last basic (indexed)
+   dbFull  : qualifying service needed for the full fraction; below it, pro-rata
+   upsLump : UPS-specific lump of 1/10th of emoluments per completed 6 months
+   npsFree : whether 60% of the NPS corpus is genuinely withdrawable          */
 const EMPLOYMENT={
-  private   :{label:'Private sector, salaried',      fund:'EPF', db:0,    npsEe:0,   npsEr:0},
-  govt_ops  :{label:'Government — old pension (joined before 2004)', fund:'GPF', db:0.50, npsEe:0, npsEr:0},
-  govt_nps  :{label:'Government — NPS (joined 2004 or later)',       fund:'GPF', db:0, npsEe:0.10, npsEr:0.14},
-  govt_ups  :{label:'Government — Unified Pension Scheme',           fund:'GPF', db:0.50, npsEe:0.10, npsEr:0.185},
-  psu       :{label:'PSU / bank, with pension',      fund:'EPF', db:0.50, npsEe:0,   npsEr:0},
-  self      :{label:'Self-employed / business',      fund:'none',db:0,    npsEe:0,   npsEr:0}
+  private   :{label:'Private sector, salaried',
+              pf:'EPF', pfRate:0.0825, db:0,    dbFull:0,  npsEe:0,   npsEr:0,    npsFree:true,  upsLump:false, da:0},
+  govt_ops  :{label:'Government — old pension (joined before 2004)',
+              pf:'GPF', pfRate:0.0710, db:0.50, dbFull:20, npsEe:0,   npsEr:0,    npsFree:true,  upsLump:false, da:0.55},
+  govt_nps  :{label:'Government — NPS (joined 2004 or later)',
+              pf:'none',pfRate:0,      db:0,    dbFull:0,  npsEe:0.10,npsEr:0.14, npsFree:true,  upsLump:false, da:0.55},
+  govt_ups  :{label:'Government — Unified Pension Scheme',
+              pf:'none',pfRate:0,      db:0.50, dbFull:25, npsEe:0.10,npsEr:0.10, npsFree:false, upsLump:true,  da:0.55},
+  psu       :{label:'PSU / bank, with pension',
+              pf:'EPF', pfRate:0.0825, db:0.50, dbFull:20, npsEe:0,   npsEr:0,    npsFree:true,  upsLump:false, da:0},
+  self      :{label:'Self-employed / business',
+              pf:'none',pfRate:0,      db:0,    dbFull:0,  npsEe:0,   npsEr:0,    npsFree:true,  upsLump:false, da:0}
 };
 
 /* NPS Tier-1 grows with real market exposure, so it is projected at a blended
@@ -1624,12 +1673,40 @@ function npsProjection(monthly,balance,years,rate,growth){
   return bal;
 }
 
-/* Gratuity: 15 days' wages per completed year, on the last drawn basic + DA.
-   Government retirement gratuity is capped (₹25 lakh since the 2024 revision);
-   the private-sector Payment of Gratuity Act cap is ₹20 lakh. */
-function gratuityEstimate(lastBasicMonthly,yearsService,cap){
-  cap=cap==null?2500000:cap;
-  return Math.min(cap,(15/26)*lastBasicMonthly*Math.max(0,yearsService));
+/* Gratuity. The two sectors use DIFFERENT formulas and the code previously
+   applied the private one to everybody.
+
+   Private (Payment of Gratuity Act): 15 days' wages per completed year
+     = (15/26) x monthly wages x years, ceiling Rs 20 lakh.
+   Central government (CCS Pension Rules): one quarter of emoluments per
+     completed six-month period
+     = 0.25 x emoluments x 2 x years  =  0.5 x emoluments x years,
+     ceiling the LOWER of 16.5 x emoluments (i.e. 33 years of service) and
+     Rs 25 lakh since 01-Jan-2024.
+
+   Emoluments means basic + DA, not basic alone, which is why the caller passes
+   a DA fraction. Using the private coefficient on a government salary
+   overstated gratuity by about 15% before the cap, and ignoring the 16.5x
+   ceiling overstated long-service cases by a further 20%.                    */
+function gratuityEstimate(lastBasicMonthly,yearsService,opts){
+  opts=opts||{};
+  const govt=!!opts.govt, da=opts.da||0;
+  const emol=lastBasicMonthly*(1+da), y=Math.max(0,yearsService);
+  if(govt){
+    const periods=Math.min(66,Math.floor(y*2));          // 66 periods = 33 years
+    const cap=opts.cap==null?2500000:opts.cap;
+    return Math.min(cap,0.25*emol*periods);
+  }
+  const cap=opts.cap==null?2000000:opts.cap;
+  return Math.min(cap,(15/26)*emol*y);
+}
+
+/* UPS pays a lump sum of one tenth of emoluments for every completed six months
+   of qualifying service, IN ADDITION to gratuity and without reducing the
+   assured payout. It is small next to the pension but it is real money. */
+function upsLumpSum(lastBasicMonthly,yearsService,da){
+  const emol=lastBasicMonthly*(1+(da||0));
+  return 0.10*emol*Math.floor(Math.max(0,yearsService)*2);
 }
 
 function annuityFactor(r,n){
@@ -1647,35 +1724,47 @@ function retirementBenefits(o){
   const gi=INFL.general;
   const L=Math.max(1,lifeExp-retireAge);
   const lastBasic=(basicMonthly||0)*Math.pow(1+g,yearsToRetire);
+  const svc=yearsServiceAtRet||0;
+  const govt=(empType||'').startsWith('govt');
+  const da=o.daPct==null?E.da:o.daPct;
 
-  // 1 · defined-benefit pension — indexed, so it is worth quoting in today's money
-  const dbAnnualAtRet = E.db>0 ? E.db*lastBasic*12 : 0;
+  // 1 · defined-benefit pension — indexed, so it is worth quoting in today's
+  //     money. Pro-rated below the qualifying service that earns the full rate.
+  const dbFrac = E.db>0 ? E.db*(E.dbFull>0?Math.min(1,svc/E.dbFull):1) : 0;
+  const dbAnnualAtRet = dbFrac*lastBasic*12;
   const dbAnnualToday = dbAnnualAtRet/Math.pow(1+gi,yearsToRetire);
+  const dbProRated = E.db>0 && E.dbFull>0 && svc<E.dbFull;
 
-  // 2 · NPS — 60% lump, 40% forced into a NOMINAL annuity
+  // 2 · NPS. The 60/40 split applies to a genuine NPS member. A UPS member's
+  //     corpus is NOT theirs to split — it funds the assured payout above and
+  //     transfers to the pool at retirement, so crediting it again here would
+  //     be counting the same money twice.
   const npsCorpus = (E.npsEe>0||npsBalance>0||npsMonthly>0)
     ? npsProjection(npsMonthly,npsBalance,yearsToRetire,0.095,g) : 0;
-  const npsLump = npsCorpus*0.60;
+  const npsLump   = E.npsFree ? npsCorpus*0.60 : 0;
   const ar = annuityRate==null?0.062:annuityRate;
-  const npsAnnuityAnnual = npsCorpus*0.40*ar;
+  const npsAnnuityAnnual = E.npsFree ? npsCorpus*0.40*ar : 0;
   // present value AT RETIREMENT of that nominal stream, discounted at a
   // conservative nominal rate — this is what it is actually worth
   const npsAnnuityPV = npsAnnuityAnnual*annuityFactor(0.078,L);
 
-  // 3 · provident fund
-  const pfAtRet = (epfMonthly>0||epfBalance>0)
-    ? epfProjection(epfMonthly,epfBalance,yearsToRetire,0.0825,g) : 0;
+  // 3 · provident fund, at the rate the fund it actually is pays.
+  //     GPF earns 7.1%; EPF earns 8.25%. Post-2004 government recruits have
+  //     neither — GPF has been closed to them since 2004.
+  const pfAtRet = (E.pf!=='none'&&(epfMonthly>0||epfBalance>0))
+    ? epfProjection(epfMonthly,epfBalance,yearsToRetire,E.pfRate,g) : 0;
 
   // 4 · one-off payments on the last working day
-  const gratuity = gratuityEstimate(lastBasic,yearsServiceAtRet||0,
-    empType.startsWith('govt')?2500000:2000000);
+  const gratuity = gratuityEstimate(lastBasic,svc,{govt,da,cap:govt?2500000:2000000});
+  const upsLump  = E.upsLump ? upsLumpSum(lastBasic,svc,da) : 0;
   const leave = (leaveEncash||0)*Math.pow(1+g,yearsToRetire);
 
-  const lumpTotal = pfAtRet+npsLump+gratuity+leave;
+  const lumpTotal = pfAtRet+npsLump+gratuity+upsLump+leave;
 
-  return{lastBasic,dbAnnualAtRet,dbAnnualToday,npsCorpus,npsLump,
-    npsAnnuityAnnual,npsAnnuityPV,pfAtRet,gratuity,leave,lumpTotal,
-    fundLabel:E.fund,dbPct:E.db,npsEe:E.npsEe,npsEr:E.npsEr,label:E.label};
+  return{lastBasic,dbAnnualAtRet,dbAnnualToday,dbFrac,dbProRated,
+    npsCorpus,npsLump,npsFree:E.npsFree,
+    npsAnnuityAnnual,npsAnnuityPV,pfAtRet,pfRate:E.pfRate,gratuity,upsLump,leave,lumpTotal,
+    fundLabel:E.pf,dbPct:E.db,npsEe:E.npsEe,npsEr:E.npsEr,label:E.label,da};
 }
 
 /* Gross corpus need, less every benefit above = what you must build yourself. */
@@ -2074,11 +2163,34 @@ G.autodata={t:'Why it cannot just fetch the data itself',b:`Not because the webs
 let KIDS=[];
 let LOANS=[];
 let LASTPLAN=null;       // filled by calcNow, so the Excel export matches the screen
-let REALDATA=null;       // set only when the user loads a real market series
+/* TWO kinds of real data, kept deliberately apart.
+
+   REALDATA  a validated FOUR-column series where all four assets are aligned
+             by calendar month. Only this can be used for anything that depends
+             on how the assets move TOGETHER: the correlation matrix, beta, the
+             Monte Carlo, portfolio volatility.
+   CHARTONLY a single pasted asset. Real, but with no companion series. It can
+             draw that asset's own history and nothing else.
+
+   These used to be the same variable. Pasting one real asset padded the other
+   three with model months matched by array position, which produced returns
+   that were individually real and jointly meaningless — every correlation, and
+   therefore beta, Sharpe and the whole diversification argument, became an
+   artefact of two unrelated series being laid side by side. The app then
+   labelled the result "real data you loaded". */
+let REALDATA=null;
+let CHARTONLY=null;
 let CH={asset:0,years:10,mode:'forward'};
 let CURRENT=null;        // {id,name,createdAt,updatedAt}
 let _ALPHA_H=null;
 let AUTO={state:'pending',msg:''};
+/* Display maps. These lived further down the file, AFTER the boot block, which
+   meant boot ran while they were still in the temporal dead zone — a blank page
+   waiting for one synchronous call to reach them. The build now refuses to
+   assemble if a top-level let/const appears after boot. */
+const ASSET_LABEL={0:'Shares',1:'Bonds',2:'Gold',3:'Cash','mix':'Your plan mix'};
+const A_LABEL={equity:'Shares',debt:'Bonds',gold:'Gold',liquid:'Cash'};
+const A_COLOR={equity:'#3987e5',debt:'#199e70',gold:'#c98500',liquid:'#6b7788'};
 
 const DEFAULTS={
   age:35,dependents:2,earners:2,stability:'stable',
@@ -2086,7 +2198,7 @@ const DEFAULTS={
   claimed:40000,emergency:450000,investments:1500000,health:1500000,term:8000000,
   hcDebt:0,hcRate:0,tol:0.55,epfMonthly:5800,epfBalance:600000,regime:'new',
   empType:'private',basicMonthly:44000,yearsServiceAtRet:33,
-  npsMonthly:0,npsBalance:0,leaveEncash:0
+  npsMonthly:0,npsBalance:0,leaveEncash:0,daPct:0
 };
 const FIELDS=Object.keys(DEFAULTS);
 let S={...DEFAULTS};
@@ -2180,7 +2292,7 @@ function pull(){
   S.tol=parseFloat(document.getElementById('tol').value);
   const rg=document.getElementById('regime'); if(rg)S.regime=rg.value;
   const et=document.getElementById('empType'); if(et&&et.value)S.empType=et.value;
-  ['basicMonthly','yearsServiceAtRet','npsMonthly','npsBalance','leaveEncash'].forEach(f=>{
+  ['basicMonthly','yearsServiceAtRet','npsMonthly','npsBalance','leaveEncash','daPct'].forEach(f=>{
     const el=document.getElementById(f); if(el)S[f]=parseFloat(el.value)||0});
   if(LOANS.length){S.emi=totalEmi();S.hcDebt=highCostDebt();S.hcRate=highCostRate()}
   else S.hcRate=(parseFloat(document.getElementById('hcRate').value)||0)/100;
@@ -2222,7 +2334,8 @@ function addGoal(){
       yearsToRetire:yrs,retireAge:rAge,lifeExp:life,
       epfMonthly:S.epfMonthly||0,epfBalance:S.epfBalance||0,
       npsMonthly:S.npsMonthly||0,npsBalance:S.npsBalance||0,
-      yearsServiceAtRet:S.yearsServiceAtRet||0,leaveEncash:S.leaveEncash||0,salaryGrowth:0.07});
+      yearsServiceAtRet:S.yearsServiceAtRet||0,leaveEncash:S.leaveEncash||0,salaryGrowth:0.07,
+      daPct:S.daPct>0?S.daPct/100:null});
     const corpusFut=retirementCorpus(spend*12,yrs,rAge,life,
       (oth/12>0?oth:0)+ben.dbAnnualToday,0.15);
     const todayEq=corpusFut/Math.pow(1+INFL.general,yrs);
@@ -2359,7 +2472,7 @@ function calcNow(out){
   let split=allocateSurplus(gs,inv.recommended,CMAX,capLong);
   gs.forEach(g=>{g.sip=split[g.id]});
   const unplaced=Math.max(0,inv.recommended-Object.values(split).reduce((a,b)=>a+b,0));
-  split=refineSplit(gs,split,HIST,y=>riskCapacity(h,gates,y),S.tol,CMAX,
+  split=refineSplit(gs,split,mcSeries(),y=>riskCapacity(h,gates,y),S.tol,CMAX,
                     {paths:700,unallocated:unplaced});
   gs.forEach(g=>{g.sip=split[g.id]});
   const totalNeed=gs.reduce((a,g)=>a+(requiredSip(g,0.09)||0),0);   // null = unreachable at any contribution
@@ -2417,7 +2530,7 @@ function calcNow(out){
     }
     const rc=requiredCagr(g);
     const a=decideAllocation(g.years,rc,gcap,S.tol,CMAX);
-    const r=simulateGoal(g,a,HIST,{paths:3000,capCap:gcap,seed:20260819});
+    const r=simulateGoal(g,a,mcSeries(),{paths:3000,capCap:gcap,seed:20260819});
     const band=probabilityBand({...g,target:g.target},gcap,S.tol,1200);
     // Headline band uses RETURN uncertainty only. The full envelope (returns
     // AND inflation together) can span 8%-100%, which is honest and useless —
@@ -2506,7 +2619,7 @@ function calcNow(out){
   if(main){
     const gcap=riskCapacity(h,gates,main.years);
     const base=simulateGoal(main,decideAllocation(main.years,requiredCagr(main),gcap,S.tol,CMAX),
-      HIST,{paths:1800,capCap:gcap,seed:20260819}).pSuccess;
+      mcSeries(),{paths:1800,capCap:gcap,seed:20260819}).pSuccess;
     const tries=[
       ['Invest ₹5,000/month more',{sip:main.sip+5000}],
       ['Raise the yearly increase 7% → 10%',{stepup:0.10}],
@@ -2527,7 +2640,7 @@ function calcNow(out){
       }else{
         const g2={...main,...kw};
         p=simulateGoal(g2,decideAllocation(g2.years,requiredCagr(g2),gcap,S.tol,CMAX),
-          HIST,{paths:1800,capCap:gcap,seed:20260819}).pSuccess;
+          mcSeries(),{paths:1800,capCap:gcap,seed:20260819}).pSuccess;
       }
       rows+=`<tr><td>${label}</td><td class="num">${pct(p)}</td>
         <td class="num" style="color:${p>base?'var(--ok)':'var(--tx3)'}">${((p-base)*100>=0?'+':'')}${((p-base)*100).toFixed(0)} pts</td></tr>`;
@@ -3416,14 +3529,14 @@ function addPerson(){
    what the MODEL believes, labels it as such, and gives you a way to load real
    data if you want the charts to be real.
    ========================================================================== */
-const ASSET_LABEL={0:'Shares',1:'Bonds',2:'Gold',3:'Cash','mix':'Your plan mix'};
 
 function renderCharts(){
   applyAssumptions();
   const real=!!REALDATA;
   document.getElementById('chartsOut').innerHTML=`
   ${real
-    ? `<div class="fresh">Using <b>real market data</b> — ${REALDATA.label}. Charts, the Monte Carlo and the risk metrics all use it.
+    ? `<div class="fresh">Using <b>real market data</b> — ${REALDATA.label}.
+        <br><br>Charts and the risk metrics use it. The Monte Carlo uses ${mcSeriesLabel()}.
         ${REALDATA.names&&Object.keys(REALDATA.names).length
           ? '<br><br><span style="font-size:12px;opacity:.85">'+Object.entries(REALDATA.names).map(([a,n])=>a+': '+n).join('<br>')+'</span>' : ''}</div>`
     : `<div class="stale"><b>These charts are the model, not history.</b> This file ships with no real market data, so drawing a line and calling it "gold over the last 20 years" would be inventing it. What you see is a series generated to match the assumptions on the Data tab — the right shape, the right volatility, the right fat tails, but not the actual past. Load real data below to make it real. ${inf('simdata')}</div>`}
@@ -3449,7 +3562,7 @@ function renderCharts(){
     <label>What is it?</label>
     <select id="csvAsset"><option value="0">Shares / equity index</option><option value="1">Bonds / debt fund</option><option value="2">Gold</option><option value="3">Cash / liquid fund</option></select>
     <button class="ghost" onclick="loadCsv()">Load it</button>
-    ${real?`<button class="ghost" onclick="REALDATA=null;applyAssumptions();renderCharts()">Go back to the model series</button>`:''}
+    ${real||CHARTONLY?`<button class="ghost" onclick="REALDATA=null;CHARTONLY=null;applyAssumptions();renderCharts()">Go back to the model series</button>`:''}
     <div id="csvMsg" style="font-size:13px;margin-top:10px;color:var(--tx2)"></div>
     <div class="note">Where to get it free: <b>AMFI</b> publishes daily NAV history for every Indian mutual fund, going back years, at no cost — that covers any fund you actually hold. Gold and index levels are widely available too, though index data is licensed for commercial use (irrelevant for personal use like this).
     <br><br>Once loaded it is stored with your plan, so you only do it once.</div>
@@ -3458,15 +3571,45 @@ function renderCharts(){
 }
 function setCh(k,v){CH[k]=v;renderCharts()}
 
+/* Anything cross-asset — risk metrics, Monte Carlo — may use ONLY a validated
+   four-column series. */
 function activeSeries(){
   if(REALDATA)return REALDATA.series;
   return HIST;
 }
+/* The Monte Carlo resamples 24-month blocks. Doing that to five years of data
+   makes every path a rotation of the same five years: the answer looks
+   precise and is an artefact. Below GOOD_HIST_MONTHS the 600-month calibrated
+   model series is the more honest input, even though it is synthetic. */
+function mcSeries(){
+  return (REALDATA && REALDATA.n>=GOOD_HIST_MONTHS) ? REALDATA.series : HIST;
+}
+function mcSeriesLabel(){
+  if(REALDATA && REALDATA.n>=GOOD_HIST_MONTHS)
+    return `real market history, ${(REALDATA.n/12).toFixed(1)} years, all four assets aligned`;
+  if(REALDATA)
+    return `the model series — your real data covers only ${(REALDATA.n/12).toFixed(1)} years, too short to resample 24-month blocks from without inventing precision`;
+  return 'the model series (no real market data loaded)';
+}
+/* Single-asset chart data, used only for the asset it actually is. */
+function chartSeriesFor(col){
+  if(CHARTONLY && CHARTONLY.col===col)
+    return {series:CHARTONLY.returns.map(r=>{const row=[NaN,NaN,NaN,NaN];row[col]=r;return row}),
+            real:true, label:CHARTONLY.label};
+  if(REALDATA) return {series:REALDATA.series, real:true, label:REALDATA.label};
+  return {series:HIST, real:false, label:'model series'};
+}
 function drawChart(){
   const el=document.getElementById('chartBody'); if(!el)return;
-  const S0=activeSeries();
   const col=CH.asset;
-  el.innerHTML = CH.mode==='forward' ? fanChart(S0,col,CH.years) : rollingChart(S0,col,CH.years);
+  const CS=chartSeriesFor(col);
+  const single = !!(CHARTONLY && CHARTONLY.col===col);
+  if(single && col==='mix'){
+    el.innerHTML='<div class="note warn">You pasted a single asset, so a blended portfolio line cannot be drawn from it. Pick that asset above, or load a full four-asset feed.</div>';
+    return;
+  }
+  el.innerHTML = (CH.mode==='forward' ? fanChart(CS.series,col,CH.years) : rollingChart(CS.series,col,CH.years))
+    + (single?`<div class="note">Drawn from the ${CHARTONLY.label} you pasted. Charts only — the risk metrics and the Monte Carlo are not using it.</div>`:'');
 }
 
 /* ---- forward fan: a RANGE, never a line ---- */
@@ -3576,19 +3719,15 @@ function loadCsv(){
   const ser=[];
   for(let i=1;i<keys.length;i++){
     if(keys[i]-keys[i-1]!==1)continue;                 // skip gaps rather than fake them
-    const r=byMonth.get(keys[i])/byMonth.get(keys[i-1])-1;
-    const row=[0,0,0,0]; row[col]=r;
-    // the other assets keep the model series so a mixed portfolio still works
-    ser.push(row);
+    ser.push(byMonth.get(keys[i])/byMonth.get(keys[i-1])-1);
   }
   if(ser.length<24){msg.innerHTML='<span style="color:var(--bad)">Fewer than 24 consecutive months after cleaning. Gaps are skipped rather than filled in.</span>';return}
-  for(let i=0;i<ser.length;i++){
-    const m=HIST[i%HIST.length];
-    for(let c=0;c<4;c++)if(c!==col)ser[i][c]=m[c];
-  }
   const yrs=(ser.length/12).toFixed(1);
-  REALDATA={series:ser,n:ser.length,label:`${ASSET_LABEL[col]}, ${yrs} years`};
-  msg.innerHTML=`<span style="color:var(--ok)">Loaded ${ser.length} months (${yrs} years) of real ${ASSET_LABEL[col].toLowerCase()} data.</span> The other assets still use the model series — load them separately if you want everything real.`;
+  CHARTONLY={returns:ser,col,n:ser.length,label:`${ASSET_LABEL[col]}, ${yrs} years`};
+  msg.innerHTML=`<span style="color:var(--ok)">Loaded ${ser.length} months (${yrs} years) of real ${ASSET_LABEL[col].toLowerCase()} history.</span> `+
+    `This draws the ${ASSET_LABEL[col].toLowerCase()} chart and nothing else. It cannot be used for the Monte Carlo, `+
+    `beta or the correlation matrix, because those depend on what the OTHER three assets were doing in the same months, `+
+    `and one pasted column does not say. Pairing it with model months would fabricate exactly the numbers you would be trying to measure.`;
   setTimeout(renderCharts,700);
 }
 
@@ -3687,7 +3826,7 @@ function exportExcel(){
   P.goals.forEach(g=>{
     if(g.sip<=0&&!g.existing)return;
     const w=[g.w.equity,g.w.debt,g.w.gold,g.w.liquid];
-    const f=forwardFan(HIST,'mix',Math.min(g.years,30),{paths:800,start:g.existing||0,sip:g.sip,w});
+    const f=forwardFan(mcSeries(),'mix',Math.min(g.years,30),{paths:800,start:g.existing||0,sip:g.sip,w});
     f.forEach(pt=>{if(pt.m%12===0)yr.push([g.name,pt.years,money(pt.p5),money(pt.p25),money(pt.p50),money(pt.p75),money(pt.p95)])});
   });
   sheets.push({name:'Year by year',rows:yr});
@@ -3736,8 +3875,6 @@ function glanceData(){
     real:(1+blended)/(1+INFL.general)-1,
     goals:P.goals.filter(g=>g.sip>0||g.existing>0)};
 }
-const A_LABEL={equity:'Shares',debt:'Bonds',gold:'Gold',liquid:'Cash'};
-const A_COLOR={equity:'#3987e5',debt:'#199e70',gold:'#c98500',liquid:'#6b7788'};
 
 function glanceCard(){
   const G0=glanceData();
@@ -3817,7 +3954,7 @@ function riskPanel(){
     </tbody></table>
     <div class="chartnote">1.00 means they move together, 0 means unrelated, negative means they move opposite ways. Gold against shares is the pair that earns gold its place — and note it is measured across calm and crisis periods together, which understates how helpful it is in the crisis half.</div>
 
-    <div class="note">Measured over ${R.nMonths} months (${(R.nMonths/12).toFixed(0)} years) of ${REALDATA?'<b>real data you loaded</b>':'model-generated series'}. ${REALDATA?'':'Load real data on the Charts tab to compute these on actual history.'}</div>
+    <div class="note">Measured over ${R.nMonths} months (${(R.nMonths/12).toFixed(0)} years) of ${REALDATA?'<b>real market history, four assets aligned by calendar month</b>':'the model-generated series'}. ${REALDATA?'':'These numbers are cross-asset — beta and the correlations only mean something when all four series cover the same months. A single pasted asset cannot produce them, so it is not used here.'}</div>
   </div>`;
 }
 
@@ -3831,7 +3968,7 @@ function renderEmpFields(){
   S.empType=sel.value;
   const E=EMPLOYMENT[S.empType];
   const box=document.getElementById('empFields'); if(!box)return;
-  const pf=E.fund==='none'?null:E.fund;
+  const pf=E.pf==='none'?null:E.pf;
   let h='';
 
   if(E.db>0){
@@ -3871,12 +4008,20 @@ function renderEmpFields(){
     </div>`;
   }
 
+  if(E.da>0){
+    h+=`<label>Dearness Allowance, as a % of basic ${inf('gratuity')}</label>
+      <input id="daPct" type="number" inputmode="decimal" placeholder="55">
+      <div class="note">Gratuity and the UPS lump sum are worked out on <b>basic + DA</b>, not basic alone, so this changes them materially. Your pension itself is on basic only, so it is unaffected. Leave blank to use 55%.</div>`;
+  }
+
   h+=`<label>Leave encashment you expect, in today's money ${inf('gratuity')}</label>
     <input id="leaveEncash" type="number" inputmode="numeric" placeholder="0 if none">
-    <div class="note">Gratuity is worked out for you from your basic pay and years of service — 15 days' wages per year, capped at ₹25 lakh for government service and ₹20 lakh in the private sector. ${inf('gratuity')}</div>`;
+    <div class="note">Gratuity is worked out for you. ${E.da>0
+      ? 'Government service uses the CCS rule — a quarter of basic + DA for every completed six months, stopping at 33 years of service or ₹25 lakh, whichever binds first.'
+      : "The Payment of Gratuity Act rule — 15 days' wages per completed year, capped at ₹20 lakh."} ${inf('gratuity')}</div>`;
 
   box.innerHTML=h;
-  ['basicMonthly','yearsServiceAtRet','epfMonthly','epfBalance','npsMonthly','npsBalance','leaveEncash']
+  ['basicMonthly','yearsServiceAtRet','epfMonthly','epfBalance','npsMonthly','npsBalance','leaveEncash','daPct']
     .forEach(f=>{const el=document.getElementById(f); if(el&&S[f]!=null)el.value=S[f]});
 }
 
@@ -3887,7 +4032,7 @@ function benefitsFor(yearsToRetire,retireAge,lifeExp){
     epfMonthly:S.epfMonthly||0, epfBalance:S.epfBalance||0,
     npsMonthly:S.npsMonthly||0, npsBalance:S.npsBalance||0,
     yearsServiceAtRet:S.yearsServiceAtRet||0, leaveEncash:S.leaveEncash||0,
-    salaryGrowth:0.07});
+    salaryGrowth:0.07, daPct:S.daPct>0?S.daPct/100:null});
 }
 
 function benefitsPanel(){
@@ -3897,9 +4042,10 @@ function benefitsPanel(){
   if(gap.covered<=0&&ben.dbAnnualToday<=0)return '';
   const covPct=gap.gross>0?1-gap.net/gap.gross:0;
   const rows=[
-    ['Provident fund ('+ben.fundLabel+')',ben.pfAtRet],
+    ['Provident fund ('+ben.fundLabel+' at '+pct(ben.pfRate,2)+')',ben.pfAtRet],
     ['NPS lump sum (60%)',ben.npsLump],
     ['Gratuity',ben.gratuity],
+    ['UPS lump sum',ben.upsLump],
     ['Leave encashment',ben.leave]
   ].filter(r=>r[1]>1000);
   return `<div class="card"><h2>What your job already covers ${inf('emptype')}</h2>
@@ -3908,6 +4054,8 @@ function benefitsPanel(){
       <span class="v" style="color:var(--ok)">₹${fmt(ben.dbAnnualToday/12)}/month<div style="font-size:11px;color:var(--tx3);font-weight:400">in today's money, rising with prices</div></span></div>`:''}
     ${ben.npsAnnuityAnnual>0?`<div class="kv"><span class="k">NPS annuity (40%, not indexed) ${inf('npsgov')}</span>
       <span class="v">₹${fmt(ben.npsAnnuityAnnual/12)}/month<div style="font-size:11px;color:var(--tx3);font-weight:400">at retirement — worth about half that in real terms by the end</div></span></div>`:''}
+    ${ben.dbProRated?`<div class="note warn">Your pension is shown <b>pro-rated</b>. The full ${pct(ben.dbPct)} needs ${EMPLOYMENT[S.empType].dbFull} years of qualifying service and you have entered ${S.yearsServiceAtRet}, so it is scaled to ${pct(ben.dbFrac)}. If that service figure is wrong, fix it — this is the single largest number on the page.</div>`:''}
+    ${S.empType==='govt_ups'&&ben.npsCorpus>0?`<div class="note">Your UPS contributions are <b>not</b> counted again as a lump sum. Under UPS the corpus funds the assured pension above and transfers to the pool at retirement — it is not yours to withdraw 60% of the way an NPS corpus is. Counting both would be double counting, which is what this app used to do.</div>`:''}
     ${rows.length?`<h3>Lump sums on your last working day</h3>`:''}
     ${rows.map(r=>`<div class="kv"><span class="k">${r[0]}</span><span class="v">₹${fmt(r[1])}</span></div>`).join('')}
     ${rows.length>1?`<div class="kv"><span class="k"><b>Total</b></span><span class="v">₹${fmt(ben.lumpTotal)}</span></div>`:''}
@@ -4078,8 +4226,24 @@ async function autoRefresh(){
     const r=await fetch('./data.json?t='+Math.floor(Date.now()/3600000),{cache:'no-store'});
     if(!r.ok)throw new Error('HTTP '+r.status);
     const j=await r.json();
-    ['equity','debt','gold','liquid','inflation','eduInfl','healthInfl']
-      .forEach(k=>{if(typeof j[k]==='number')ASSUM[k]=j[k]});
+    /* An upstream feed can hand back a number that is real, well-formed and
+       absurd — a CPI print from a crisis year, a units mix-up, a bad parse.
+       Nothing downstream would notice: the model would simply project 40%
+       inflation forever and report it with total confidence. So every incoming
+       assumption is bounded, and anything clamped is said out loud rather than
+       quietly absorbed. */
+    const BOUNDS={equity:[4,20],debt:[2,14],gold:[0,16],liquid:[1,12],
+                  inflation:[1,12],eduInfl:[1,16],healthInfl:[1,18]};
+    const clamped=[];
+    Object.keys(BOUNDS).forEach(k=>{
+      if(typeof j[k]!=='number'||!isFinite(j[k]))return;
+      const [lo,hi]=BOUNDS[k];
+      if(j[k]<lo||j[k]>hi){
+        clamped.push(`${k} came back as ${j[k]}%, outside the plausible ${lo}-${hi}% range — held at ${j[k]<lo?lo:hi}%`);
+        ASSUM[k]=j[k]<lo?lo:hi;
+      } else ASSUM[k]=j[k];
+    });
+    if(clamped.length)(j.errors=j.errors||[]).push(...clamped);
     if(j.reviewed)ASSUM.reviewed=j.reviewed;
     applyAssumptions();
     // A properly ALIGNED four-column series, or nothing. Padding real equity
@@ -4087,16 +4251,23 @@ async function autoRefresh(){
     // returns that are individually real and jointly meaningless — every
     // correlation, and therefore every claim about diversification, becomes
     // noise. Partial data is worse than no data here, so it is refused.
-    if(Array.isArray(j.series)&&j.series.length>=24&&j.seriesComplete
-       &&j.series.every(r=>Array.isArray(r)&&r.length===4&&r.every(x=>isFinite(x)))){
+    const shaped = Array.isArray(j.series)
+      && j.series.every(r=>Array.isArray(r)&&r.length===4&&r.every(x=>isFinite(x)));
+    if(shaped && j.series.length>=MIN_HIST_MONTHS && j.seriesComplete){
       REALDATA={series:j.series,n:j.series.length,
         label:`${(j.series.length/12).toFixed(1)} years, all four assets, aligned by month`,
         names:j.seriesNames||{}};
-    }else if(Array.isArray(j.series)&&j.series.length>=24){
+      if(j.series.length<GOOD_HIST_MONTHS)(j.errors=j.errors||[]).push(
+        `series is only ${(j.series.length/12).toFixed(1)} years — long enough for charts and risk `+
+        `metrics, too short to resample 24-month blocks from, so the Monte Carlo stays on the model series`);
+    }else if(shaped && j.series.length>0){
       REALDATA=null;
       (j.errors=j.errors||[]).push(
-        'series covers only '+(j.seriesAssets||[]).join(', ')+
-        ' — refused, because mixing real and model assets fabricates the correlations');
+        !j.seriesComplete
+          ? 'series covers only '+(j.seriesAssets||[]).join(', ')+
+            ' — refused, because mixing real and model assets fabricates the correlations'
+          : `series is only ${j.series.length} months; below ${MIN_HIST_MONTHS} it cannot support the `+
+            `method and would produce a confident-looking answer drawn from almost no data`);
     }
     const realMonths=REALDATA?REALDATA.n:0;
     AUTO={state:'ok',msg:`Data refreshed ${j.reviewed}`+

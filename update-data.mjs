@@ -32,12 +32,23 @@
    ========================================================================== */
 
 const FUNDS = {
-  equity: process.env.EQUITY_CODE || '120716',   // a Nifty index fund
-  debt  : process.env.DEBT_CODE   || '119533',   // short-duration debt
-  gold  : process.env.GOLD_CODE   || '119212',   // gold fund
-  liquid: process.env.LIQUID_CODE || '119069'    // liquid fund
+  equity: process.env.EQUITY_CODE || '120716',   // UTI Nifty 50 Index, Direct, Growth
+  debt  : process.env.DEBT_CODE   || '119533',   // ABSL Corporate Bond, Direct, Growth
+  gold  : process.env.GOLD_CODE   || '119788',   // SBI Gold Fund, Direct, Growth
+  liquid: process.env.LIQUID_CODE || '119091'    // HDFC Liquid Fund, Direct, Growth
 };
 const OUT = 'data.json';
+
+/* A dead feed is the quietest failure of all. A fund that merged or was renamed
+   years ago still answers with HTTP 200 and a full, genuine NAV history that
+   simply stops. Its name passes a name check and its volatility passes a
+   volatility check, because both were true — in 2013. Only the dates give it
+   away, so the dates are checked. */
+const MAX_STALE_DAYS   = 45;
+/* The Monte Carlo resamples blocks of consecutive months. Below this, a
+   bootstrap replays the same short window and returns a narrow, confident
+   band that is an artefact of the sample size rather than a measurement. */
+const MIN_USABLE_MONTHS = 60;
 
 const get = async (url) => {
   const r = await fetch(url, {headers:{'User-Agent':'money-plan/1.0'}});
@@ -92,7 +103,15 @@ async function navByMonth(code){
   }
   const out = new Map();
   for(const [k,[,nav]] of m) out.set(k, nav);
-  return {name: j.meta?.scheme_name || String(code), navs: out};
+  // newest observation, for the staleness check
+  let last = null;
+  for(const d of (j.data||[])){
+    const [dd,mm,yy] = d.date.split('-').map(Number);
+    const t = Date.UTC(yy, mm-1, dd);
+    if(last===null || t>last) last = t;
+  }
+  return {name: j.meta?.scheme_name || String(code), navs: out, last,
+          category: j.meta?.scheme_category || ''};
 }
 
 /* Four aligned monthly return series, truncated to their common overlap. */
@@ -107,6 +126,15 @@ async function alignedSeries(){
                   `Find the right code at api.mfapi.in/mf/search?q=<fund name>`);
         continue;
       }
+      const ageDays = f.last==null ? Infinity : Math.floor((Date.now()-f.last)/86400000);
+      if(ageDays > MAX_STALE_DAYS){
+        errs.push(`${asset} (${code}): REJECTED — "${f.name}" last published a NAV `+
+                  `${f.last==null?'never':new Date(f.last).toISOString().slice(0,10)}, `+
+                  `${isFinite(ageDays)?ageDays+' days ago':'ever'}. This fund is dead — merged, renamed or wound up. `+
+                  `The history it returns is real and finished, which is why nothing else catches it.`);
+        continue;
+      }
+      f.ageDays = ageDays;
       loaded[asset] = f;
     }
     catch(e){ errs.push(`${asset} (${code}): ${e.message}`); }
@@ -157,18 +185,38 @@ async function alignedSeries(){
     if(corr > 0.5) errs.push(`gold: correlation with equity is ${corr.toFixed(2)}. Real gold sits near `+
                              `zero or below. "${loaded.gold.name}" is almost certainly an equity fund.`);
   }
+  if(rows.length && rows.length < MIN_USABLE_MONTHS)
+    errs.push(`only ${rows.length} months overlap across all four funds (need ${MIN_USABLE_MONTHS}). `+
+              `The overlap is set by the SHORTEST history, so one recently-launched fund caps everything. `+
+              `Swap it for an older scheme of the same kind if you want a longer window.`);
   const bad = errs.some(e=>/REJECTED|wrong kind|almost certainly/.test(e));
   const names = {}; have.forEach(a=>names[a]=loaded[a].name);
-  return {series: (rows.length>=24 && !bad) ? rows : null, errs, names, vols,
+  const ages  = {}; have.forEach(a=>ages[a]=loaded[a].ageDays);
+  return {series: (rows.length>=MIN_USABLE_MONTHS && !bad) ? rows : null, errs, names, vols, ages,
           months: rows.length, assets: have,
-          complete: have.length === 4 && !bad};
+          complete: have.length === 4 && rows.length>=MIN_USABLE_MONTHS && !bad};
 }
 
+/* FP.CPI.TOTL.ZG is "Inflation, consumer prices (annual %)". World Bank data
+   for India lags by roughly a year, so this is NOT the current rate — it is the
+   average of the last five years it has published, and the years are recorded
+   in the output so nobody has to guess which ones. */
 async function inflation(){
-  const j = await get('https://api.worldbank.org/v2/country/IN/indicator/FP.CPI.TOTL.ZG?format=json&per_page=8');
-  const v = (j[1]||[]).filter(d=>d.value!=null).slice(0,5).map(d=>d.value);
-  if(!v.length) return null;
-  return +(v.reduce((a,b)=>a+b,0)/v.length).toFixed(2);
+  const j = await get('https://api.worldbank.org/v2/country/IN/indicator/FP.CPI.TOTL.ZG?format=json&per_page=10');
+  const rows = (j[1]||[]).filter(d=>d.value!=null).slice(0,5);
+  if(!rows.length) return null;
+  const v = rows.map(d=>d.value);
+  const avg = v.reduce((a,b)=>a+b,0)/v.length;
+  const years = rows.map(d=>d.date).sort();
+  /* A single crisis year, a revision, or a units change upstream would move
+     this without anything downstream noticing. Every assumption in the model is
+     built on top of it, so it is bounded and any clamp is reported. */
+  const LO = 2.0, HI = 10.0;
+  const clampedTo = avg < LO ? LO : avg > HI ? HI : null;
+  return {value: +(clampedTo ?? avg).toFixed(2),
+          raw: +avg.toFixed(2),
+          years: `${years[0]}-${years[years.length-1]}`,
+          clamped: clampedTo != null};
 }
 
 /* Assumptions are BUILT UP, never read off recent performance. Only the
@@ -179,9 +227,15 @@ function assumptions(infl){
   const realGrowth = 5.5;   // long-run real earnings growth — review yearly
   const divYield   = 1.2;   // observable; wire to a live source if you have one
   const repricing  = -0.7;  // valuation drag — judgement
+  /* debt is a SPREAD OVER CPI, not a reading of the yield curve. Nothing here
+     fetches bond yields — index and bond data are licensed. The spread is
+     roughly right today and will drift; if you want the highest-confidence
+     number in the model to actually be high-confidence, look up the 10-year
+     government bond yield once a year and type it into the Data tab. */
   return {
     equity: +(divYield + realGrowth + repricing + inflation).toFixed(2),
     debt  : +(inflation + 1.8).toFixed(2),
+    debtSource: 'CPI + 1.8% spread — NOT the live yield curve; override on the Data tab if you want the real one',
     gold  : +(inflation + 1.5).toFixed(2),
     liquid: +(inflation + 0.8).toFixed(2),
     inflation,
@@ -192,8 +246,16 @@ function assumptions(infl){
 
 (async () => {
   const errors = [];
-  let infl = null;
-  try { infl = await inflation(); } catch(e){ errors.push('inflation: '+e.message); }
+  let infl = null, inflMeta = null;
+  try {
+    inflMeta = await inflation();
+    if(inflMeta){
+      infl = inflMeta.value;
+      if(inflMeta.clamped) errors.push(
+        `inflation: World Bank five-year average came back as ${inflMeta.raw}%, outside the plausible `+
+        `2-10% band — held at ${infl}%. Check the source before trusting anything downstream of it.`);
+    }
+  } catch(e){ errors.push('inflation: '+e.message); }
   const S = await alignedSeries();
   errors.push(...S.errs);
 
@@ -201,7 +263,10 @@ function assumptions(infl){
     reviewed: new Date().toISOString().slice(0,10),
     source: 'auto — update-data.mjs',
     ...assumptions(infl),
-    inflationSource: infl!=null ? 'World Bank CPI India, 5-year average' : 'fallback default',
+    inflationSource: infl!=null
+      ? `World Bank CPI India (FP.CPI.TOTL.ZG), average of ${inflMeta.years} — published data lags about a year, so this is not the current print`
+      : 'fallback default',
+    inflationYears: inflMeta ? inflMeta.years : null,
     // four aligned columns: equity, debt, gold, liquid
     series: S.series,
     seriesMonths: S.series ? S.series.length : 0,
@@ -209,6 +274,8 @@ function assumptions(infl){
     seriesComplete: !!S.complete,
     seriesNames: S.names,
     seriesVols: S.vols || {},
+    seriesAgeDays: S.ages || {},
+    minUsableMonths: MIN_USABLE_MONTHS,
     errors
   };
 
