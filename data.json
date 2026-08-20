@@ -3,12 +3,14 @@
  "source": "auto — update-data.mjs",
  "equity": 10.97,
  "debt": 6.77,
+ "debtSource": "CPI + 1.8% spread — NOT the live yield curve; override on the Data tab if you want the real one",
  "gold": 6.47,
  "liquid": 5.77,
  "inflation": 4.97,
  "eduInfl": 7.97,
  "healthInfl": 8.97,
- "inflationSource": "World Bank CPI India, 5-year average",
+ "inflationSource": "World Bank CPI India (FP.CPI.TOTL.ZG), average of 2021-2025 — published data lags about a year, so this is not the current print",
+ "inflationYears": "2021-2025",
  "series": null,
  "seriesMonths": 0,
  "seriesAssets": [
@@ -30,6 +32,13 @@
   "gold": 0.1523364915258574,
   "liquid": 27.039721008494645
  },
+ "seriesAgeDays": {
+  "equity": 2,
+  "debt": 2,
+  "gold": 2,
+  "liquid": 2
+ },
+ "minUsableMonths": 60,
  "errors": [
   "liquid: volatility 2704.0%/yr is outside the 0-3% range expected for liquid. \"HDFC Liquid Fund - Growth Option - Direct Plan\" is probably the wrong kind of fund."
  ]
