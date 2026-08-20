@@ -37,6 +37,17 @@ const FUNDS = {
   gold  : process.env.GOLD_CODE   || '119788',   // SBI Gold Fund, Direct, Growth
   liquid: process.env.LIQUID_CODE || '119091'    // HDFC Liquid Fund, Direct, Growth
 };
+/* Stamped into data.json and printed in the workflow log.
+
+   Why this exists: uploading a file from a phone is a surprisingly unreliable
+   step. The browser may save a second download as "update-data (1).mjs", and
+   uploading THAT adds a new file to the repo while the workflow keeps running
+   the old one — no error anywhere, output that looks fine, and a fix that
+   silently never took effect. So the script says which version it is, and
+   data.json records it. If this number is not what you just uploaded, the
+   upload did not land, whatever the repo file list appears to show. */
+const SCRIPT_VERSION = '2026-08-20d  step/spike detection';
+
 const OUT = 'data.json';
 
 /* A dead feed is the quietest failure of all. A fund that merged or was renamed
@@ -179,53 +190,110 @@ async function alignedSeries(){
 
   const order = ['equity','debt','gold','liquid'];
 
-  /* Pass one: build every candidate month and mark the impossible ones.
-     A month is dropped for ALL FOUR assets if any single asset's move is
-     impossible, because the point of this series is that the four columns
-     describe the SAME month. Keeping three columns and discarding one would
-     reintroduce exactly the mismatch the alignment exists to prevent. */
-  const candidates = [], dropped = [], moveOffenders = {};
+  /* Pass one: every candidate month, with each asset's raw return, and a note
+     of which ones are arithmetically impossible for their asset class. */
+  const cand = [];
   for(let i=1;i<keys.length;i++){
     if(keys[i]-keys[i-1] !== 1) continue;          // a gap: skip, never interpolate
     if(order.some(a=>!loaded[a])) continue;        // partial data is refused outright
-    const row = [0,0,0,0];
-    let bad = null;
+    const row = [0,0,0,0]; const bad = [];
+    const monthIx = cand.length;      // position in cand, NOT the asset index
     order.forEach((a,ix)=>{
       const n1 = loaded[a].navs.get(keys[i-1]), n2 = loaded[a].navs.get(keys[i]);
       const r = n2/n1 - 1;
       row[ix] = +r.toFixed(6);
       const [lo,hi] = MOVE_RULES[a];
-      if(r < lo || r > hi){
-        bad = bad || [];
-        bad.push({asset:a, r, n1, n2,
+      if(r < lo || r > hi)
+        bad.push({asset:a, ix:monthIx, r, n1, n2,
                   from: loaded[a].when.get(keys[i-1]), to: loaded[a].when.get(keys[i])});
-        moveOffenders[a] = (moveOffenders[a]||0) + 1;
-      }
     });
-    if(bad) dropped.push(bad); else candidates.push(row);
+    cand.push({row, bad});
   }
-  const rows = candidates;
-  /* Note the honest cost of dropping: the surviving months are no longer
-     strictly contiguous, so a resampled block can splice across a removed
-     month. For a handful of drops in a multi-year series that is a smaller
-     distortion than leaving an impossible return in, but it is a distortion. */
 
-  /* Report what was thrown away, in enough detail to act on. A count alone is
-     useless: "3 months dropped" tells you nothing about whether the fund is
-     wrong or a data provider fat-fingered a decimal. The NAVs do. */
-  const totalMonths = candidates.length + dropped.length;
-  if(dropped.length){
-    const shown = dropped.slice(0,4).map(b=>b.map(x=>
-      `${x.asset} ${x.from} ${x.n1} -> ${x.to} ${x.n2} (${(x.r*100).toFixed(1)}%)`).join('; '));
-    errs.push(`${dropped.length} of ${totalMonths} months dropped for impossible NAV moves — `+
-              `single bad prints in the source data, not a wrong fund, unless the count is large. `+
-              `Worst: ${shown.join(' | ')}`);
-  }
+  /* Pass two: an impossible move is one of two completely different things,
+     and treating them the same is how a wrong series survives.
+
+       SPIKE  a NAV goes wrong for one month and comes straight back. A typo, a
+              stray value from another plan. The month either side is fine, so
+              drop the bad month and keep everything else.
+
+       STEP   a NAV changes level and STAYS there. That is not a bad print —
+              it is a different fund. Scheme mergers and face-value changes do
+              this: a liquid fund carrying a Rs 10 predecessor's history will
+              jump by a factor of about 100 on the day the series switches over.
+              Everything BEFORE the step belongs to that other fund and has no
+              business in this series, however real those returns were.
+
+     Dropping the single month at a step is the dangerous outcome: the return
+     series repairs itself arithmetically and years of a different fund's
+     history stay in, looking perfectly ordinary. So a step truncates. */
+  /* A NAV that goes wrong and comes back produces TWO impossible moves — the
+     departure and the return — and either one, looked at alone, is
+     indistinguishable from a permanent level change. So a move counts as part
+     of a spike if compounding it with EITHER neighbour lands back in normal
+     territory. Checking only the following month classifies the recovery leg
+     as a step and truncates the series at exactly the wrong place. */
+  const retOf = (a,i) => cand[i] ? cand[i].row[order.indexOf(a)] : null;
+  const backToNormal = (a,g) => {
+    const [lo,hi] = MOVE_RULES[a];
+    return g!=null && g >= lo*2 && g <= hi*2;
+  };
+  const isSpike = (b) => {
+    const nxt = retOf(b.asset, b.ix+1), prv = retOf(b.asset, b.ix-1);
+    return backToNormal(b.asset, nxt==null?null:(1+b.r)*(1+nxt)-1)
+        || backToNormal(b.asset, prv==null?null:(1+b.r)*(1+prv)-1);
+  };
+
+  /* Order matters. Count first, judge the FUND first, and only then ask what
+     kind of defect the surviving funds have. A fund that lurches every month is
+     the wrong fund; describing its first lurch as a "face-value change" is
+     noise on top of a verdict that has already been reached. */
+  const moveOffenders = {};
+  cand.forEach(c=>c.bad.forEach(b=>{moveOffenders[b.asset]=(moveOffenders[b.asset]||0)+1}));
+  const rejected = new Set();
   Object.entries(moveOffenders).forEach(([a,n])=>{
-    if(totalMonths && n/totalMonths > MAX_BAD_FRACTION)
-      errs.push(`${a}: ${n} of ${totalMonths} months move by amounts impossible for ${a}. `+
-                `That is too many to be bad prints. "${loaded[a].name}" is REJECTED as the wrong kind of fund.`);
+    if(cand.length && n/cand.length > MAX_BAD_FRACTION){
+      rejected.add(a);
+      errs.push(`${a}: ${n} of ${cand.length} months move by amounts impossible for ${a}. `+
+                `That is far too many to be bad prints. "${loaded[a].name}" is REJECTED as the wrong kind of fund.`);
+    }
   });
+
+  const steps = [], spikes = [];
+  cand.forEach(c=>c.bad.forEach(b=>{
+    if(rejected.has(b.asset)) return;
+    (isSpike(b) ? spikes : steps).push(b);
+  }));
+
+  // truncate at the LAST step: everything before it is another fund's history
+  const cut = steps.length ? Math.max(...steps.map(b=>b.ix)) + 1 : 0;
+  if(cut){
+    const b = steps.reduce((x,y)=>y.ix>x.ix?y:x);
+    errs.push(`${b.asset}: the NAV series steps from ${b.n1} to ${b.n2} between ${b.from} and ${b.to} `+
+              `(x${(b.n2/b.n1).toFixed(2)}) and stays at the new level. That is a scheme merger or a `+
+              `face-value change, not a bad print — the history before it belongs to a different fund. `+
+              `Everything up to ${b.to} has been DISCARDED; ${cand.length-cut} months kept. `+
+              `Dropping just that one month would have repaired the arithmetic and quietly left the `+
+              `other fund's years in the series.`);
+  }
+
+  const kept = cand.slice(cut);
+  const rows = kept.filter(c=>!c.bad.length).map(c=>c.row);
+  const droppedAfterCut = kept.length - rows.length;
+
+  const totalMonths = cand.length;
+  if(droppedAfterCut && !rejected.size){
+    const shown = spikes.filter(b=>b.ix>=cut).slice(0,4).map(x=>
+      `${x.asset} ${x.from} ${x.n1} -> ${x.to} ${x.n2} (${(x.r*100).toFixed(1)}%)`);
+    errs.push(`${droppedAfterCut} month(s) dropped as one-off bad NAV prints — the value went wrong and `+
+              `came straight back, so only that month is unusable. ${shown.length?'Worst: '+shown.join(' | '):''}`);
+  }
+  const dropped = {steps: steps.length, spikes: spikes.filter(b=>b.ix>=cut).length, cut};
+  /* Honest cost of dropping a spike month: the surviving months are no longer
+     strictly contiguous, so a resampled block can splice across the gap. For a
+     handful of drops in a multi-year series that is a far smaller distortion
+     than leaving an impossible return in, but it is a distortion. */
+
 
   // Second opinion: does each series BEHAVE like the thing it claims to be?
   // Measured AFTER dropping impossible months, so one stray NAV cannot make a
@@ -267,7 +335,7 @@ async function alignedSeries(){
              droppedMonths: moveOffenders[a]||0};
   });
   return {series: (rows.length>=MIN_USABLE_MONTHS && !bad) ? rows : null, errs, names, vols, ages,
-          diag, dropped: dropped.length,
+          diag, dropped, truncatedAt: cut,
           months: rows.length, assets: have,
           complete: have.length === 4 && rows.length>=MIN_USABLE_MONTHS && !bad};
 }
@@ -336,6 +404,7 @@ function assumptions(infl){
 
   const payload = {
     reviewed: new Date().toISOString().slice(0,10),
+    scriptVersion: SCRIPT_VERSION,
     source: 'auto — update-data.mjs',
     ...assumptions(infl),
     inflationSource: infl!=null
@@ -351,13 +420,14 @@ function assumptions(infl){
     seriesVols: S.vols || {},
     seriesAgeDays: S.ages || {},
     seriesDiagnostics: S.diag || {},
-    seriesDroppedMonths: S.dropped || 0,
+    seriesDropped: S.dropped || {},
     minUsableMonths: MIN_USABLE_MONTHS,
     errors
   };
 
   const fs = await import('node:fs');
   fs.writeFileSync(OUT, JSON.stringify(payload, null, 1));
+  console.log(`update-data.mjs version ${SCRIPT_VERSION}`);
   console.log(`wrote ${OUT}`);
   console.log(`  inflation ${payload.inflation}%  ·  equity ${payload.equity}%`);
   console.log(`  aligned series: ${payload.seriesMonths} months across ${S.assets.length}/4 assets` +
