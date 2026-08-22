@@ -1,5 +1,5 @@
 {
- "reviewed": "2026-08-20",
+ "reviewed": "2026-08-22",
  "scriptVersion": "2026-08-20d  step/spike detection",
  "source": "auto — update-data.mjs",
  "equity": 10.97,
@@ -800,10 +800,10 @@
    0.005088
   ],
   [
-   -0.008439,
-   0.003124,
-   0.078832,
-   0.003221
+   -0.004477,
+   0.000403,
+   0.122351,
+   0.003629
   ]
  ],
  "seriesMonths": 132,
@@ -815,58 +815,58 @@
  ],
  "seriesComplete": true,
  "seriesNames": {
-  "equity": "UTI Nifty 50 Index Fund - Growth Option- Direct",
-  "debt": "Aditya Birla Sun Life Corporate Bond Fund - Growth - Direct Plan",
-  "gold": "SBI GOLD FUND- DIRECT PLAN - GROWTH",
-  "liquid": "HDFC Liquid Fund - Growth Option - Direct Plan"
+  "equity": "UTI Nifty 50 Index Fund - Direct Plan - Growth",
+  "debt": "Aditya Birla Sun Life Corporate Bond Fund - Direct Plan - GROWTH",
+  "gold": "SBI GOLD FUND - Direct Plan - Growth",
+  "liquid": "HDFC Liquid Fund - Direct Plan - Growth Option"
  },
  "seriesVols": {
-  "equity": 0.1606249753218979,
-  "debt": 0.016754858824999476,
-  "gold": 0.14775994923215194,
-  "liquid": 0.004441271578954517
+  "equity": 0.16058698343188638,
+  "debt": 0.016820194508299118,
+  "gold": 0.15008674396051197,
+  "liquid": 0.004427583359964878
  },
  "seriesAgeDays": {
-  "equity": 2,
-  "debt": 2,
-  "gold": 2,
-  "liquid": 2
+  "equity": 1,
+  "debt": 1,
+  "gold": 1,
+  "liquid": 1
  },
  "seriesDiagnostics": {
   "equity": {
-   "points": 3353,
+   "points": 3356,
    "months": 164,
    "first": "31-01-2013",
-   "last": "18-08-2026",
+   "last": "21-08-2026",
    "firstNav": 37.6333,
-   "lastNav": 170.0922,
+   "lastNav": 170.7719,
    "droppedMonths": 0
   },
   "debt": {
-   "points": 3291,
+   "points": 3294,
    "months": 164,
    "first": "31-01-2013",
-   "last": "18-08-2026",
+   "last": "21-08-2026",
    "firstNav": 42.8216,
-   "lastNav": 122.0686,
+   "lastNav": 121.7376,
    "droppedMonths": 0
   },
   "gold": {
-   "points": 3302,
+   "points": 3305,
    "months": 164,
    "first": "31-01-2013",
-   "last": "18-08-2026",
+   "last": "21-08-2026",
    "firstNav": 10.6127,
-   "lastNav": 46.68,
+   "lastNav": 48.563,
    "droppedMonths": 0
   },
   "liquid": {
-   "points": 4205,
+   "points": 4208,
    "months": 165,
    "first": "31-12-2012",
-   "last": "18-08-2026",
+   "last": "21-08-2026",
    "firstNav": 22.651,
-   "lastNav": 5554.2234,
+   "lastNav": 5556.4868,
    "droppedMonths": 1
   }
  },
