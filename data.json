@@ -1,5 +1,5 @@
 {
- "reviewed": "2026-08-22",
+ "reviewed": "2026-08-23",
  "scriptVersion": "2026-08-20d  step/spike detection",
  "source": "auto — update-data.mjs",
  "equity": 10.97,
@@ -803,7 +803,7 @@
    -0.004477,
    0.000403,
    0.122351,
-   0.003629
+   0.003959
   ]
  ],
  "seriesMonths": 132,
@@ -824,13 +824,13 @@
   "equity": 0.16058698343188638,
   "debt": 0.016820194508299118,
   "gold": 0.15008674396051197,
-  "liquid": 0.004427583359964878
+  "liquid": 0.004418986782106307
  },
  "seriesAgeDays": {
-  "equity": 1,
-  "debt": 1,
-  "gold": 1,
-  "liquid": 1
+  "equity": 2,
+  "debt": 2,
+  "gold": 2,
+  "liquid": 0
  },
  "seriesDiagnostics": {
   "equity": {
@@ -861,12 +861,12 @@
    "droppedMonths": 0
   },
   "liquid": {
-   "points": 4208,
+   "points": 4209,
    "months": 165,
    "first": "31-12-2012",
-   "last": "21-08-2026",
+   "last": "23-08-2026",
    "firstNav": 22.651,
-   "lastNav": 5556.4868,
+   "lastNav": 5558.3108,
    "droppedMonths": 1
   }
  },
