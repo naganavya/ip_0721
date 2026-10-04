@@ -1,5 +1,5 @@
 {
- "reviewed": "2026-09-27",
+ "reviewed": "2026-10-04",
  "scriptVersion": "2026-08-20d  step/spike detection",
  "source": "auto — update-data.mjs",
  "equity": 10.97,
@@ -806,13 +806,19 @@
    0.00542
   ],
   [
-   -0.038888,
-   -0.000937,
-   -0.023126,
-   0.004328
+   -0.060543,
+   -0.001271,
+   -0.044618,
+   0.004799
+  ],
+  [
+   -0.008783,
+   -0.000281,
+   -0.002077,
+   0.000889
   ]
  ],
- "seriesMonths": 133,
+ "seriesMonths": 134,
  "seriesAssets": [
   "equity",
   "debt",
@@ -827,52 +833,52 @@
   "liquid": "HDFC Liquid Fund - Direct Plan - Growth Option"
  },
  "seriesVols": {
-  "equity": 0.16073254503195594,
-  "debt": 0.016916945653213118,
-  "gold": 0.14798705831806247,
-  "liquid": 0.004396628695394627
+  "equity": 0.1609484042415363,
+  "debt": 0.0169735723342791,
+  "gold": 0.14811764019313312,
+  "liquid": 0.00454998796095588
  },
  "seriesAgeDays": {
-  "equity": 2,
-  "debt": 2,
-  "gold": 2,
+  "equity": 3,
+  "debt": 3,
+  "gold": 3,
   "liquid": 0
  },
  "seriesDiagnostics": {
   "equity": {
-   "points": 3380,
-   "months": 165,
+   "points": 3384,
+   "months": 166,
    "first": "31-01-2013",
-   "last": "25-09-2026",
+   "last": "01-10-2026",
    "firstNav": 37.6333,
-   "lastNav": 162.9607,
+   "lastNav": 157.8901,
    "droppedMonths": 0
   },
   "debt": {
-   "points": 3317,
-   "months": 165,
+   "points": 3321,
+   "months": 166,
    "first": "31-01-2013",
-   "last": "25-09-2026",
+   "last": "01-10-2026",
    "firstNav": 42.8216,
-   "lastNav": 121.5278,
+   "lastNav": 121.4531,
    "droppedMonths": 0
   },
   "gold": {
-   "points": 3329,
-   "months": 165,
+   "points": 3333,
+   "months": 166,
    "first": "31-01-2013",
-   "last": "25-09-2026",
+   "last": "01-10-2026",
    "firstNav": 10.6127,
-   "lastNav": 45.971,
+   "lastNav": 44.8662,
    "droppedMonths": 0
   },
   "liquid": {
-   "points": 4242,
-   "months": 166,
+   "points": 4249,
+   "months": 167,
    "first": "31-12-2012",
-   "last": "27-09-2026",
+   "last": "04-10-2026",
    "firstNav": 22.651,
-   "lastNav": 5590.4911,
+   "lastNav": 5598.0849,
    "droppedMonths": 1
   }
  },
@@ -883,6 +889,6 @@
  },
  "minUsableMonths": 60,
  "errors": [
-  "liquid: the NAV series steps from 28.3904 to 2857.8319 between 31-07-2015 and 31-08-2015 (x100.66) and stays at the new level. That is a scheme merger or a face-value change, not a bad print — the history before it belongs to a different fund. Everything up to 31-08-2015 has been DISCARDED; 133 months kept. Dropping just that one month would have repaired the arithmetic and quietly left the other fund's years in the series."
+  "liquid: the NAV series steps from 28.3904 to 2857.8319 between 31-07-2015 and 31-08-2015 (x100.66) and stays at the new level. That is a scheme merger or a face-value change, not a bad print — the history before it belongs to a different fund. Everything up to 31-08-2015 has been DISCARDED; 134 months kept. Dropping just that one month would have repaired the arithmetic and quietly left the other fund's years in the series."
  ]
 }
