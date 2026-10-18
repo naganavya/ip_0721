@@ -1,5 +1,5 @@
 {
- "reviewed": "2026-10-11",
+ "reviewed": "2026-10-18",
  "scriptVersion": "2026-08-20d  step/spike detection",
  "source": "auto — update-data.mjs",
  "equity": 10.97,
@@ -812,10 +812,10 @@
    0.004799
   ],
   [
-   -0.004477,
-   -0.000201,
-   0.007914,
-   0.002248
+   0.023385,
+   -0.002713,
+   -0.013152,
+   0.002862
   ]
  ],
  "seriesMonths": 134,
@@ -833,10 +833,10 @@
   "liquid": "HDFC Liquid Fund - Direct Plan - Growth Option"
  },
  "seriesVols": {
-  "equity": 0.16090907642302732,
-  "debt": 0.016970899135859592,
-  "gold": 0.1480559251982831,
-  "liquid": 0.004455559135906097
+  "equity": 0.16090397768412867,
+  "debt": 0.01707066941391082,
+  "gold": 0.14825650041257396,
+  "liquid": 0.0044245098309395065
  },
  "seriesAgeDays": {
   "equity": 2,
@@ -846,39 +846,39 @@
  },
  "seriesDiagnostics": {
   "equity": {
-   "points": 3389,
+   "points": 3394,
    "months": 166,
    "first": "31-01-2013",
-   "last": "09-10-2026",
+   "last": "16-10-2026",
    "firstNav": 37.6333,
-   "lastNav": 158.5759,
+   "lastNav": 163.0141,
    "droppedMonths": 0
   },
   "debt": {
-   "points": 3326,
+   "points": 3331,
    "months": 166,
    "first": "31-01-2013",
-   "last": "09-10-2026",
+   "last": "16-10-2026",
    "firstNav": 42.8216,
-   "lastNav": 121.4628,
+   "lastNav": 121.1576,
    "droppedMonths": 0
   },
   "gold": {
-   "points": 3338,
+   "points": 3343,
    "months": 166,
    "first": "31-01-2013",
-   "last": "09-10-2026",
+   "last": "16-10-2026",
    "firstNav": 10.6127,
-   "lastNav": 45.3154,
+   "lastNav": 44.3683,
    "droppedMonths": 0
   },
   "liquid": {
-   "points": 4255,
+   "points": 4261,
    "months": 167,
    "first": "31-12-2012",
-   "last": "11-10-2026",
+   "last": "18-10-2026",
    "firstNav": 22.651,
-   "lastNav": 5605.687,
+   "lastNav": 5609.1208,
    "droppedMonths": 1
   }
  },
